@@ -1,0 +1,33 @@
+node_modules/
+.DS_Store
+dist/
+*.log
+/tmp/
+
+# Build artefact (esbuild output, auto-regenerated)
+src/bundle.js
+
+# POC / dev tools (içinde .env API key olabilir)
+tools/
+
+# Environment files
+.env
+.env.local
+.env.*.local
+
+# Windows offline installer runtimes (large binaries)
+vendor/windows/node/
+vendor/windows/ffmpeg/
+
+# macOS offline installer runtimes (large binaries)
+vendor/macos/arm64/
+vendor/macos/x86_64/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+
+# macOS
+.AppleDouble
+.LSOverride

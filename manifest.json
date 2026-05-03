@@ -1,0 +1,74 @@
+{
+  "id": "com.seyoweb.premierseyo.studio",
+  "name": "PremierSEYO Studio",
+  "version": "2.0.0-rc.1",
+  "main": "src/index.html",
+  "host": {
+    "app": "premierepro",
+    "minVersion": "25.6.0"
+  },
+  "manifestVersion": 5,
+  "requiredPermissions": {
+    "localFileSystem": "fullAccess",
+    "clipboard": "readAndWrite",
+    "network": {
+      "domains": "all"
+    },
+    "launchProcess": {
+      "schemes": ["http", "https"],
+      "extensions": ["", ".srt", ".vtt", ".wav", ".txt"]
+    },
+    "allowCodeGenerationFromStrings": true
+  },
+  "entrypoints": [
+    {
+      "id": "premierseyo-studio-panel",
+      "type": "panel",
+      "label": {
+        "default": "PremierSEYO Studio"
+      },
+      "minimumSize": {
+        "width": 280,
+        "height": 400
+      },
+      "maximumSize": {
+        "width": 600,
+        "height": 1200
+      },
+      "preferredDockedSize": {
+        "width": 320,
+        "height": 600
+      },
+      "preferredFloatingSize": {
+        "width": 400,
+        "height": 780
+      },
+      "icons": [
+        {
+          "width": 23,
+          "height": 23,
+          "path": "icons/icon-dark.png",
+          "scale": [1, 2],
+          "theme": ["darkest", "dark", "medium"]
+        },
+        {
+          "width": 23,
+          "height": 23,
+          "path": "icons/icon-light.png",
+          "scale": [1, 2],
+          "theme": ["lightest", "light"]
+        }
+      ]
+    }
+  ],
+  "icons": [
+    {
+      "width": 48,
+      "height": 48,
+      "path": "icons/icon-dark.png",
+      "scale": [1, 2],
+      "theme": ["darkest", "dark", "medium", "lightest", "light", "all"],
+      "species": ["pluginList"]
+    }
+  ]
+}
