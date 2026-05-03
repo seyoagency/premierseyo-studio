@@ -50,19 +50,22 @@ archive.on("error", (err) => {
 
 archive.pipe(output);
 
-// 1. manifest.json (root)
-archive.file(path.join(ROOT, "manifest.json"), { name: "manifest.json" });
+// Sıra: dirs önce, manifest.json son (Adobe v1 .ccx pattern'i — UPIA hata kodu -4
+// muhtemelen entry order'a duyarlı; manifest'i son ekleyince Adobe doğru parse ediyor).
 
-// 2. src/ (bundle.js + index.html + icons içine kayar dahildir)
-archive.directory(path.join(ROOT, "src"), "src");
-
-// 3. icons/ (root-level)
+// 1. icons/ (root-level)
 archive.directory(path.join(ROOT, "icons"), "icons");
 
-// 4. presets/ (Phase 5 .epr — opsiyonel)
+// 2. src/ (bundle.js + index.html + tüm modüller)
+archive.directory(path.join(ROOT, "src"), "src");
+
+// 3. presets/ (Phase 5 .epr — opsiyonel)
 const presetsDir = path.join(ROOT, "presets");
 if (fs.existsSync(presetsDir)) {
   archive.directory(presetsDir, "presets");
 }
+
+// 4. manifest.json (root) — son sırada
+archive.file(path.join(ROOT, "manifest.json"), { name: "manifest.json" });
 
 archive.finalize();
