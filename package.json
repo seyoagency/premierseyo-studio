@@ -1,6 +1,6 @@
 {
   "name": "premierseyo-studio",
-  "version": "2.0.0",
+  "version": "2.0.1",
   "description": "Adobe Premiere Pro 2026 self-contained Auto-Cut + Auto-SRT plugin (AME native, no daemon, single .ccx)",
   "author": "SEYO",
   "license": "MIT",

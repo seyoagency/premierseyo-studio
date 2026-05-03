@@ -80,6 +80,10 @@ body {
   display: flex;
   flex-direction: column;
   position: relative;
+  max-width: 720px;
+  margin: 0 auto;
+  width: 100%;
+  min-height: 100vh;
 }
 
 /* Subtle radial atmosphere — top-left acid glow */
@@ -350,9 +354,17 @@ button {
   flex: 1;
   animation: contentEnter 0.5s var(--ease-out) both;
 }
-body.no-key .onboarding { display: flex; }
+body.no-key .onboarding { display: flex !important; }
 body.no-key .tabs,
-body.no-key .tab-content { display: none; }
+body.no-key .tab-content,
+body.no-key .tab-content.active { display: none !important; }
+
+/* Onboarding kart (genis floating panelde merkez) */
+.onboarding {
+  max-width: 480px;
+  margin: 0 auto;
+  width: 100%;
+}
 
 .onboarding-glyph {
   width: 64px;

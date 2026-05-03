@@ -13,7 +13,9 @@
 const REPO_OWNER = "seyoagency";
 const REPO_NAME = "premierseyo-studio";
 const CACHE_KEY = "premierseyo-studio-last-update-check";
-const CHECK_INTERVAL_MS = 24 * 60 * 60 * 1000; // 24 saat
+// Cache: 5 dakika. Plugin her 5 dk içinde max 1 GitHub fetch yapar (rate limit dostu,
+// test'te de kullanıcının makul süre beklemesi yeter).
+const CHECK_INTERVAL_MS = 5 * 60 * 1000;
 
 function getCurrentVersion() {
   try {

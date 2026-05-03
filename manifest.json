@@ -1,7 +1,7 @@
 {
   "id": "com.seyoweb.premierseyostudio",
   "name": "PremierSEYO Studio",
-  "version": "2.0.0",
+  "version": "2.0.1",
   "main": "src/index.html",
   "host": {
     "app": "premierepro",
@@ -28,20 +28,20 @@
         "default": "PremierSEYO Studio"
       },
       "minimumSize": {
-        "width": 280,
-        "height": 400
+        "width": 320,
+        "height": 480
       },
       "maximumSize": {
-        "width": 600,
-        "height": 1200
+        "width": 720,
+        "height": 1400
       },
       "preferredDockedSize": {
-        "width": 320,
-        "height": 600
+        "width": 360,
+        "height": 720
       },
       "preferredFloatingSize": {
-        "width": 400,
-        "height": 780
+        "width": 460,
+        "height": 820
       },
       "icons": [
         {

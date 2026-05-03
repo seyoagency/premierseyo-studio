@@ -84,6 +84,10 @@ body {
   display: flex;
   flex-direction: column;
   position: relative;
+  max-width: 720px;
+  margin: 0 auto;
+  width: 100%;
+  min-height: 100vh;
 }
 
 /* Subtle radial atmosphere — top-left acid glow */
@@ -354,9 +358,17 @@ button {
   flex: 1;
   animation: contentEnter 0.5s var(--ease-out) both;
 }
-body.no-key .onboarding { display: flex; }
+body.no-key .onboarding { display: flex !important; }
 body.no-key .tabs,
-body.no-key .tab-content { display: none; }
+body.no-key .tab-content,
+body.no-key .tab-content.active { display: none !important; }
+
+/* Onboarding kart (genis floating panelde merkez) */
+.onboarding {
+  max-width: 480px;
+  margin: 0 auto;
+  width: 100%;
+}
 
 .onboarding-glyph {
   width: 64px;
@@ -2188,9 +2200,15 @@ button::before {
       </div>
 
       <div class="drawer-section">
+        <span class="drawer-section-title">Güncelleme</span>
+        <div role="button" tabindex="0" class="btn btn-secondary" id="btn-check-update" style="width:100%;">Güncelleme Kontrol Et</div>
+        <p id="update-status" style="font-size: 11px; color: var(--ink-300); line-height: 1.6; margin-top: 8px;"></p>
+      </div>
+
+      <div class="drawer-section">
         <span class="drawer-section-title">Hakkında</span>
         <p style="font-size: 11px; color: var(--ink-300); line-height: 1.6;">
-          Sürüm 1.1 · Audio analizi <strong style="color: var(--ink-100);">Deepgram Nova-3</strong> ile yapılır. Tek API çağrısında transkripsiyon + sessizlik segmentleri döner ve daemon tarafında 1 saat cache'lenir.
+          PremierSEYO Studio v2 · Self-contained UXP · <strong style="color: var(--ink-100);">Deepgram Nova-3</strong> ile transkripsiyon, <strong style="color: var(--ink-100);">Adobe Media Encoder</strong> ile audio export. Tek API çağrısında transkript + sessizlik segmentleri döner.
         </p>
       </div>
     </div>
@@ -2857,20 +2875,20 @@ button::before {
               default: "PremierSEYO Studio"
             },
             minimumSize: {
-              width: 280,
-              height: 400
+              width: 320,
+              height: 480
             },
             maximumSize: {
-              width: 600,
-              height: 1200
+              width: 720,
+              height: 1400
             },
             preferredDockedSize: {
-              width: 320,
-              height: 600
+              width: 360,
+              height: 720
             },
             preferredFloatingSize: {
-              width: 400,
-              height: 780
+              width: 460,
+              height: 820
             },
             icons: [
               {
@@ -2910,7 +2928,7 @@ button::before {
       var REPO_OWNER = "seyoagency";
       var REPO_NAME = "premierseyo-studio";
       var CACHE_KEY = "premierseyo-studio-last-update-check";
-      var CHECK_INTERVAL_MS = 24 * 60 * 60 * 1e3;
+      var CHECK_INTERVAL_MS = 5 * 60 * 1e3;
       function getCurrentVersion() {
         try {
           return require_manifest().version || "0.0.0";
@@ -5786,6 +5804,39 @@ ${cap.text}`;
       testBtn.addEventListener("click", async () => {
         const typed = keyInput && keyInput.value.trim();
         await runConnectionTest(testBtn, typed || null);
+      });
+    }
+    const updateBtn = document.getElementById("btn-check-update");
+    const updateStatus = document.getElementById("update-status");
+    if (updateBtn && updateChecker) {
+      updateBtn.addEventListener("click", async () => {
+        _setDisabled(updateBtn, true);
+        const orig = updateBtn.innerHTML;
+        updateBtn.innerHTML = '<span class="spinner"></span> Kontrol ediliyor...';
+        if (updateStatus) updateStatus.textContent = "";
+        try {
+          const res = await updateChecker.checkForUpdates({ force: true });
+          if (res.available) {
+            if (updateStatus) {
+              updateStatus.textContent = `Yeni s\xFCr\xFCm: v${res.latestVersion} (mevcut: v${res.currentVersion})`;
+              updateStatus.style.color = "var(--accent)";
+            }
+            showUpdateBanner(res);
+          } else {
+            if (updateStatus) {
+              updateStatus.textContent = `G\xFCncel: v${res.currentVersion}`;
+              updateStatus.style.color = "var(--ink-300)";
+            }
+          }
+        } catch (e) {
+          if (updateStatus) {
+            updateStatus.textContent = `Hata: ${e.message || "kontrol ba\u015Far\u0131s\u0131z"}`;
+            updateStatus.style.color = "var(--danger)";
+          }
+        } finally {
+          _setDisabled(updateBtn, false);
+          updateBtn.innerHTML = orig;
+        }
       });
     }
     if (saveBtn) {

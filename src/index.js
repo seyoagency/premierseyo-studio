@@ -1302,6 +1302,41 @@ function setupSettingsDrawer() {
     });
   }
 
+  // Manuel "Güncelleme Kontrol Et" butonu (cache bypass)
+  const updateBtn = document.getElementById("btn-check-update");
+  const updateStatus = document.getElementById("update-status");
+  if (updateBtn && updateChecker) {
+    updateBtn.addEventListener("click", async () => {
+      _setDisabled(updateBtn, true);
+      const orig = updateBtn.innerHTML;
+      updateBtn.innerHTML = '<span class="spinner"></span> Kontrol ediliyor...';
+      if (updateStatus) updateStatus.textContent = "";
+      try {
+        const res = await updateChecker.checkForUpdates({ force: true });
+        if (res.available) {
+          if (updateStatus) {
+            updateStatus.textContent = `Yeni sürüm: v${res.latestVersion} (mevcut: v${res.currentVersion})`;
+            updateStatus.style.color = "var(--accent)";
+          }
+          showUpdateBanner(res);
+        } else {
+          if (updateStatus) {
+            updateStatus.textContent = `Güncel: v${res.currentVersion}`;
+            updateStatus.style.color = "var(--ink-300)";
+          }
+        }
+      } catch (e) {
+        if (updateStatus) {
+          updateStatus.textContent = `Hata: ${e.message || "kontrol başarısız"}`;
+          updateStatus.style.color = "var(--danger)";
+        }
+      } finally {
+        _setDisabled(updateBtn, false);
+        updateBtn.innerHTML = orig;
+      }
+    });
+  }
+
   if (saveBtn) {
     saveBtn.addEventListener("click", async () => {
       const key = keyInput && keyInput.value.trim();
