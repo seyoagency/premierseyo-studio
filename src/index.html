@@ -2555,11 +2555,212 @@ button::before {
     }
   });
 
+  // src/core/deepgram-client.js
+  var require_deepgram_client = __commonJS({
+    "src/core/deepgram-client.js"(exports, module) {
+      var secretStore2 = require_secret_store();
+      var CACHE = /* @__PURE__ */ new Map();
+      var CACHE_TTL_MS = 60 * 60 * 1e3;
+      var REQUEST_TIMEOUT_MS = 5 * 60 * 1e3;
+      function round3(n) {
+        return Math.round(n * 1e3) / 1e3;
+      }
+      function buildCacheKey(audioPath, language, uttSplit) {
+        try {
+          const fs = __require("fs");
+          const stat = fs.statSync(audioPath);
+          return `${audioPath}::${stat.size}::${stat.mtimeMs}::${language}::${uttSplit}`;
+        } catch {
+          return `${audioPath}::${Date.now()}::${language}::${uttSplit}`;
+        }
+      }
+      function getCached(cacheKey) {
+        const entry = CACHE.get(cacheKey);
+        if (!entry) return null;
+        if (entry.expires < Date.now()) {
+          CACHE.delete(cacheKey);
+          return null;
+        }
+        return entry.response;
+      }
+      function setCached(cacheKey, response) {
+        CACHE.set(cacheKey, { response, expires: Date.now() + CACHE_TTL_MS });
+      }
+      function clearCache() {
+        CACHE.clear();
+      }
+      function humanizeDeepgramHttpError(statusCode, bodyStr) {
+        if (statusCode === 401 || statusCode === 403) {
+          return "Deepgram API key ge\xE7ersiz veya yetkisiz. Sa\u011F \xFCst \u2699 ayar \u2192 'Ba\u011Flant\u0131y\u0131 Test Et' ile kontrol et.";
+        }
+        if (statusCode === 402 || statusCode === 429) {
+          return "Deepgram ayl\u0131k kredi/quota dolmu\u015F. console.deepgram.com \u2192 Usage'dan kontrol et veya yeni bir hesap a\xE7.";
+        }
+        if (statusCode === 413) {
+          return "Audio dosyas\u0131 Deepgram i\xE7in \xE7ok b\xFCy\xFCk. Daha k\u0131sa bir b\xF6l\xFCm se\xE7ip tekrar dene.";
+        }
+        if (statusCode >= 500 && statusCode < 600) {
+          return `Deepgram servisinde ge\xE7ici sorun (HTTP ${statusCode}). Birka\xE7 dakika sonra tekrar dene.`;
+        }
+        let detail = "";
+        try {
+          const parsed = JSON.parse(bodyStr);
+          detail = parsed.err_msg || parsed.message || parsed.error || parsed.reason || "";
+        } catch {
+        }
+        if (!detail) detail = String(bodyStr || "").slice(0, 200).trim();
+        return `Deepgram hata kodu ${statusCode}${detail ? ": " + detail : ""}`;
+      }
+      function humanizeDeepgramNetworkError(err) {
+        const msg = err && err.message ? err.message : String(err || "");
+        if (/ECONNREFUSED|ENOTFOUND|ENETUNREACH|EAI_AGAIN|Failed to fetch|Network/i.test(msg)) {
+          return "\u0130nternet eri\u015Fimi yok veya api.deepgram.com'a ula\u015F\u0131lam\u0131yor. A\u011F ba\u011Flant\u0131n\u0131 kontrol et.";
+        }
+        if (/timeout|zaman aşımı|abort/i.test(msg)) {
+          return "Deepgram iste\u011Fi zaman a\u015F\u0131m\u0131na u\u011Frad\u0131. \u0130nternet ba\u011Flant\u0131n\u0131 veya audio dosya boyutunu kontrol et.";
+        }
+        if (/socket hang up|ECONNRESET/i.test(msg)) {
+          return "Deepgram ba\u011Flant\u0131s\u0131 kesildi. Tekrar dene.";
+        }
+        return msg || "Deepgram'a ula\u015F\u0131rken bilinmeyen a\u011F hatas\u0131.";
+      }
+      async function transcribeFile(audioPath, options = {}) {
+        const fs = __require("fs");
+        try {
+          fs.statSync(audioPath);
+        } catch {
+          throw new Error(`Audio dosyas\u0131 yok: ${audioPath}`);
+        }
+        const isAuto = options.language === "auto";
+        const language = isAuto ? null : options.language || "tr";
+        const uttSplit = Number.isFinite(options.uttSplit) ? options.uttSplit : 0.8;
+        const model = options.model || "nova-3";
+        const cacheKey = buildCacheKey(audioPath, isAuto ? "auto" : language, uttSplit);
+        const cached = getCached(cacheKey);
+        if (cached) return cached;
+        const apiKey = await secretStore2.getKey();
+        if (!apiKey) {
+          throw new Error(
+            "Deepgram API key girilmemi\u015F. Sa\u011F \xFCst \u2699 ayar ikonundan key girin."
+          );
+        }
+        const params = new URLSearchParams({
+          model,
+          punctuate: "true",
+          smart_format: "true",
+          paragraphs: "true",
+          utterances: "true",
+          utt_split: String(uttSplit),
+          diarize: "false"
+        });
+        if (isAuto) {
+          params.append("detect_language", "true");
+        } else {
+          params.append("language", language);
+        }
+        if (Array.isArray(options.keyterm)) {
+          for (const kt of options.keyterm) {
+            if (kt && typeof kt === "string") params.append("keyterm", kt);
+          }
+        }
+        const buffer = fs.readFileSync(audioPath);
+        let body;
+        if (buffer && buffer.buffer && buffer.byteLength != null) {
+          body = new Uint8Array(buffer.buffer, buffer.byteOffset || 0, buffer.byteLength);
+        } else {
+          body = buffer;
+        }
+        const url = `https://api.deepgram.com/v1/listen?${params.toString()}`;
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+        try {
+          const res = await fetch(url, {
+            method: "POST",
+            headers: {
+              Authorization: `Token ${apiKey}`,
+              "Content-Type": "application/octet-stream"
+            },
+            body,
+            signal: controller.signal
+          });
+          if (!res.ok) {
+            const errorBody = await res.text().catch(() => "");
+            throw new Error(humanizeDeepgramHttpError(res.status, errorBody));
+          }
+          const json = await res.json();
+          setCached(cacheKey, json);
+          return json;
+        } catch (e) {
+          if (e.name === "AbortError") {
+            throw new Error(
+              "Deepgram iste\u011Fi zaman a\u015F\u0131m\u0131na u\u011Frad\u0131 (5 dk). \u0130nternet ba\u011Flant\u0131n\u0131 veya dosya boyutunu kontrol et."
+            );
+          }
+          if (e.message && /Deepgram|Audio dosyası|İnternet|key|kredi/i.test(e.message)) {
+            throw e;
+          }
+          throw new Error(humanizeDeepgramNetworkError(e));
+        } finally {
+          clearTimeout(timer);
+        }
+      }
+      function deriveSilenceRegions(response, { minSilence = 0.4 } = {}) {
+        const utterances = response && response.results && response.results.utterances || [];
+        const audioDuration = response && response.metadata && response.metadata.duration || 0;
+        const regions = [];
+        if (utterances.length === 0) {
+          if (audioDuration >= minSilence) {
+            regions.push({ start: 0, end: audioDuration, duration: audioDuration });
+          }
+          return regions;
+        }
+        if (utterances[0].start >= minSilence) {
+          regions.push({
+            start: 0,
+            end: round3(utterances[0].start),
+            duration: round3(utterances[0].start)
+          });
+        }
+        for (let i = 1; i < utterances.length; i++) {
+          const prev = utterances[i - 1];
+          const cur = utterances[i];
+          const gap = cur.start - prev.end;
+          if (gap >= minSilence) {
+            regions.push({
+              start: round3(prev.end),
+              end: round3(cur.start),
+              duration: round3(gap)
+            });
+          }
+        }
+        const last = utterances[utterances.length - 1];
+        if (audioDuration - last.end >= minSilence) {
+          regions.push({
+            start: round3(last.end),
+            end: round3(audioDuration),
+            duration: round3(audioDuration - last.end)
+          });
+        }
+        return regions;
+      }
+      function getDuration(response) {
+        return response && response.metadata && response.metadata.duration || 0;
+      }
+      module.exports = {
+        transcribeFile,
+        deriveSilenceRegions,
+        getDuration,
+        clearCache
+      };
+    }
+  });
+
   // src/utils/transport.js
   var require_transport = __commonJS({
     "src/utils/transport.js"(exports, module) {
       var daemon2 = require_daemon();
       var secretStore2 = require_secret_store();
+      var deepgramClient = require_deepgram_client();
       async function setDeepgramKey(key) {
         return secretStore2.setKey(key);
       }
@@ -2613,11 +2814,15 @@ button::before {
       async function exportAudio(opts) {
         return daemon2.exportAudio(opts);
       }
-      async function silenceDetect(opts) {
-        return daemon2.silenceDetect(opts);
+      async function silenceDetect({ audioPath, minDuration = 0.4, language = "tr", uttSplit = 0.8 } = {}) {
+        const json = await deepgramClient.transcribeFile(audioPath, { language, uttSplit });
+        const regions = deepgramClient.deriveSilenceRegions(json, { minSilence: minDuration });
+        const duration = deepgramClient.getDuration(json);
+        return { ok: true, regions, duration };
       }
-      async function transcribe(opts) {
-        return daemon2.transcribe(opts);
+      async function transcribe({ audioPath, language = "tr", keyterm = null, uttSplit = 0.8 } = {}) {
+        const json = await deepgramClient.transcribeFile(audioPath, { language, keyterm, uttSplit });
+        return { ok: true, result: json };
       }
       async function writeFile(opts) {
         return daemon2.writeFile(opts);

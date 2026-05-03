@@ -15,6 +15,7 @@
 
 const daemon = require("./daemon");
 const secretStore = require("./secret-store");
+const deepgramClient = require("../core/deepgram-client");
 
 // ——— Phase 2: secureStorage + plugin-side Deepgram auth ———
 
@@ -88,12 +89,18 @@ async function exportAudio(opts) {
   return daemon.exportAudio(opts);
 }
 
-async function silenceDetect(opts) {
-  return daemon.silenceDetect(opts);
+// ——— Phase 3: plugin-side Deepgram (transcribe + silence detect) ———
+
+async function silenceDetect({ audioPath, minDuration = 0.4, language = "tr", uttSplit = 0.8 } = {}) {
+  const json = await deepgramClient.transcribeFile(audioPath, { language, uttSplit });
+  const regions = deepgramClient.deriveSilenceRegions(json, { minSilence: minDuration });
+  const duration = deepgramClient.getDuration(json);
+  return { ok: true, regions, duration };
 }
 
-async function transcribe(opts) {
-  return daemon.transcribe(opts);
+async function transcribe({ audioPath, language = "tr", keyterm = null, uttSplit = 0.8 } = {}) {
+  const json = await deepgramClient.transcribeFile(audioPath, { language, keyterm, uttSplit });
+  return { ok: true, result: json };
 }
 
 async function writeFile(opts) {
