@@ -2755,12 +2755,103 @@ button::before {
     }
   });
 
+  // src/utils/file-saver.js
+  var require_file_saver = __commonJS({
+    "src/utils/file-saver.js"(exports, module) {
+      function getShell() {
+        try {
+          return __require("uxp").shell;
+        } catch {
+          return null;
+        }
+      }
+      async function writeAtPath(filePath, content) {
+        if (!filePath || typeof filePath !== "string") {
+          throw new Error("filePath gerekli");
+        }
+        if (content == null) throw new Error("content gerekli");
+        const fs = __require("fs");
+        const path = __require("path");
+        try {
+          fs.mkdirSync(path.dirname(filePath), { recursive: true });
+        } catch {
+        }
+        fs.writeFileSync(filePath, content, "utf-8");
+        return filePath;
+      }
+      async function pickAndSave(suggestedName, content, types) {
+        let lfs;
+        try {
+          lfs = __require("uxp").storage.localFileSystem;
+        } catch {
+          throw new Error("UXP localFileSystem mevcut de\u011Fil");
+        }
+        const targetFile = await lfs.getFileForSaving(suggestedName, {
+          types: Array.isArray(types) && types.length > 0 ? types : void 0
+        });
+        if (!targetFile) return null;
+        await targetFile.write(content, { format: __require("uxp").storage.formats.utf8 });
+        return targetFile.nativePath || targetFile.url || suggestedName;
+      }
+      async function revealInOS(filePath) {
+        if (!filePath) return { ok: false, error: "filePath yok" };
+        const shell = getShell();
+        if (!shell) return { ok: false, error: "shell mod\xFCl\xFC yok" };
+        const path = __require("path");
+        const dirPath = path.dirname(filePath);
+        try {
+          if (typeof shell.openPath === "function") {
+            await shell.openPath(dirPath);
+            return { ok: true };
+          }
+          if (typeof shell.openExternal === "function") {
+            await shell.openExternal(`file://${dirPath}`);
+            return { ok: true };
+          }
+        } catch (e) {
+          return { ok: false, error: e.message || "reveal ba\u015Far\u0131s\u0131z" };
+        }
+        return { ok: false, error: "shell.openPath ve openExternal yok" };
+      }
+      async function getHomeDirs() {
+        const os = __require("os");
+        const path = __require("path");
+        let homeDir = "";
+        try {
+          homeDir = os.homedir() || "";
+        } catch {
+          homeDir = "";
+        }
+        if (!homeDir) {
+          try {
+            const lfs = __require("uxp").storage.localFileSystem;
+            const dataFolder = await lfs.getDataFolder();
+            homeDir = dataFolder.nativePath;
+          } catch {
+            throw new Error(
+              "Kullan\u0131c\u0131 dizini bulunamad\u0131 (UXP runtime s\u0131n\u0131rlamas\u0131). 'Save As' diyalo\u011Fu kullan\u0131lacak."
+            );
+          }
+        }
+        const documentsDir = path.join(homeDir, "Documents");
+        return { homeDir, documentsDir };
+      }
+      module.exports = {
+        writeAtPath,
+        pickAndSave,
+        revealInOS,
+        getHomeDirs
+      };
+    }
+  });
+
   // src/utils/transport.js
   var require_transport = __commonJS({
     "src/utils/transport.js"(exports, module) {
       var daemon2 = require_daemon();
       var secretStore2 = require_secret_store();
       var deepgramClient = require_deepgram_client();
+      var fileSaver = require_file_saver();
       async function setDeepgramKey(key) {
         return secretStore2.setKey(key);
       }
@@ -2824,14 +2915,15 @@ button::before {
         const json = await deepgramClient.transcribeFile(audioPath, { language, keyterm, uttSplit });
         return { ok: true, result: json };
       }
-      async function writeFile(opts) {
-        return daemon2.writeFile(opts);
+      async function writeFile({ filePath, content } = {}) {
+        const savedPath = await fileSaver.writeAtPath(filePath, content);
+        return { ok: true, path: savedPath };
       }
       async function reveal(filePath) {
-        return daemon2.reveal(filePath);
+        return fileSaver.revealInOS(filePath);
       }
       async function getHomeDirs() {
-        return daemon2.getHomeDirs();
+        return fileSaver.getHomeDirs();
       }
       async function log(tag, message) {
         try {

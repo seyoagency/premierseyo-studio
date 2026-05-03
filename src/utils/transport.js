@@ -16,6 +16,7 @@
 const daemon = require("./daemon");
 const secretStore = require("./secret-store");
 const deepgramClient = require("../core/deepgram-client");
+const fileSaver = require("./file-saver");
 
 // ——— Phase 2: secureStorage + plugin-side Deepgram auth ———
 
@@ -103,16 +104,19 @@ async function transcribe({ audioPath, language = "tr", keyterm = null, uttSplit
   return { ok: true, result: json };
 }
 
-async function writeFile(opts) {
-  return daemon.writeFile(opts);
+// ——— Phase 4: UXP-native file save + reveal ———
+
+async function writeFile({ filePath, content } = {}) {
+  const savedPath = await fileSaver.writeAtPath(filePath, content);
+  return { ok: true, path: savedPath };
 }
 
 async function reveal(filePath) {
-  return daemon.reveal(filePath);
+  return fileSaver.revealInOS(filePath);
 }
 
 async function getHomeDirs() {
-  return daemon.getHomeDirs();
+  return fileSaver.getHomeDirs();
 }
 
 async function log(tag, message) {
