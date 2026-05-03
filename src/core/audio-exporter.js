@@ -1,26 +1,24 @@
 /**
- * Sequence'in TUM audio'sunu mixdown olarak WAV'a cikar
+ * Sequence audio mixdown — Adobe Media Encoder (AME) üzerinden.
  *
- * Yaklasim:
- * 1. Sequence'deki tum audio + video clip'lerin source path, source in/out,
- *    timeline start bilgilerini topla
- * 2. Daemon'daki /build-sequence-audio endpoint'ine gonder
- * 3. Daemon FFmpeg concat+atrim ile mixdown WAV uretir
+ * v1 daemon FFmpeg /build-sequence-audio yerine AME EncoderManager.exportSequence.
+ * Plugin sequence'i AME'ye gönderir, AME Premiere'in kendi mixdown logic'iyle WAV
+ * üretir (effects, levels, fades dahil — FFmpeg'in concat+atrim'inden daha doğru).
  *
- * Bu sequence'in trim/split edit'lerini yansitir (onceki "ilk klip" yaklasimi
- * yapmiyordu).
+ * collectSequenceClips() reconstructor için clipsMeta sağlamaya devam eder
+ * (Auto-Cut Apply'ın source clip mapping'i için gerekli).
  */
 
-const daemon = require("../utils/transport");
-const timelineMapper = require("../timeline/timeline-mapper");
+const ameExporter = require("./ame-exporter");
+const fileSaver = require("../utils/file-saver");
 
 /**
- * Active sequence'in tum audio mixdown'ini WAV olarak export et.
+ * Active sequence'in tüm audio mixdown'ını WAV olarak export et.
+ * @param {object} options
+ *   onProgress: (percent: number) => void  — AME render percent
  * @returns {Promise<{ outputPath: string, clips: object[] }>}
- *   Reconstruct tarafinda timeline → source mapping icin clips metadata'si
- *   birlikte donduruluyor.
  */
-async function exportAudio({ sampleRate = 48000, mono = false, suffix = "" } = {}) {
+async function exportAudio({ suffix = "", onProgress } = {}) {
   const ppro = require("premierepro");
 
   const project = await ppro.Project.getActiveProject();
@@ -31,29 +29,32 @@ async function exportAudio({ sampleRate = 48000, mono = false, suffix = "" } = {
 
   const clips = await collectSequenceClips(sequence);
   if (clips.length === 0) {
-    throw new Error("Sequence'de ses klibi bulunamadi");
+    throw new Error("Sequence'de ses klibi bulunamadı");
   }
 
-  // Mixdown icin overlap'ler tek kaynaga indirilir (flatten); daemon'a flat liste gider.
-  // Reconstructor'a HAM listeyi donduruyoruz ki effects snapshot her track item'a 1-1
-  // eslesebilsin (path + timelineStart key'i ile).
-  const flattenedForMix = timelineMapper.flattenTimelineClips(clips);
+  const outputPath = await buildOutputPath(sequence, suffix);
 
-  const res = await daemon.call("/build-sequence-audio", {
-    clips: flattenedForMix,
-    sampleRate,
-    mono,
-  }, 600000);
+  // AME ile sequence audio render
+  await ameExporter.exportSequenceAudio(sequence, outputPath, { onProgress });
 
-  return { outputPath: res.outputPath, clips };
+  return { outputPath, clips };
+}
+
+/**
+ * Mixdown WAV için output path. ~/Documents/PremierSEYO Studio/.cache altında.
+ */
+async function buildOutputPath(sequence, suffix) {
+  const path = require("path");
+  const seqName = (sequence.name || "sequence").replace(/[^a-zA-Z0-9_-]/g, "_");
+  const { documentsDir } = await fileSaver.getHomeDirs();
+  const cacheDir = path.join(documentsDir, "PremierSEYO Studio", ".cache");
+  const filename = `${seqName}${suffix || ""}-mixdown.wav`;
+  return path.join(cacheDir, filename);
 }
 
 /**
  * Sequence'deki TUM audio track clip'lerini, source info + timeline position
- * ile topla. Eger audio yoksa video track'leri kullan (videonun ses kanalini
- * FFmpeg cikaracak).
- *
- * Her clip objesi: { path, sourceIn, sourceOut, timelineStart, duration, trackIndex }
+ * ile topla. Audio yoksa video tracks'ten ses çekilir (videonun audio kanalı).
  */
 async function collectSequenceClips(sequence) {
   const ppro = require("premierepro");
@@ -62,7 +63,6 @@ async function collectSequenceClips(sequence) {
   const audioTrackCount = await sequence.getAudioTrackCount();
   const videoTrackCount = await sequence.getVideoTrackCount();
 
-  // Audio tracks varsa onu kullan
   const tracks = [];
   if (audioTrackCount > 0) {
     for (let i = 0; i < audioTrackCount; i++) {
@@ -71,12 +71,14 @@ async function collectSequenceClips(sequence) {
     }
   }
 
-  // Hic audio clip yoksa video'lardan cekelim
-  const fallbackToVideo = tracks.length === 0 ||
-    (await Promise.all(tracks.map(async ({ track }) => {
-      const items = await track.getTrackItems(1, false);
-      return items && items.length > 0;
-    }))).every(x => !x);
+  const fallbackToVideo =
+    tracks.length === 0 ||
+    (await Promise.all(
+      tracks.map(async ({ track }) => {
+        const items = await track.getTrackItems(1, false);
+        return items && items.length > 0;
+      })
+    )).every((x) => !x);
 
   const finalTracks = fallbackToVideo
     ? await (async () => {
@@ -103,7 +105,6 @@ async function collectSequenceClips(sequence) {
       const filePath = await clipItem.getMediaFilePath();
       if (!filePath) continue;
 
-      // Zaman bilgileri
       const startTime = await item.getStartTime();
       const endTime = await item.getEndTime();
       const inPoint = await item.getInPoint();
@@ -125,8 +126,7 @@ async function collectSequenceClips(sequence) {
     }
   }
 
-  // Aynı source file + aynı range çakışmalarını dedupe et
-  // (audio + video track'lerde aynı klip varsa sadece birini al)
+  // Audio + video track'lerde aynı clip ise dedupe
   const unique = [];
   const seen = new Set();
   for (const c of clips) {
@@ -144,9 +144,6 @@ async function collectSequenceClips(sequence) {
     }
   }
 
-  // Ham unique liste donduruyoruz — flatten exportAudio() icinde mixdown icin yapilir.
-  // Boylelikle reconstructor effects snapshot loop'u clipsMeta uzerinde her track item'a
-  // 1-1 eslesir (flatten slice'lar yerine).
   return unique;
 }
 
