@@ -28,20 +28,20 @@
         "default": "PremierSEYO Studio"
       },
       "minimumSize": {
-        "width": 320,
-        "height": 480
+        "width": 360,
+        "height": 600
       },
       "maximumSize": {
-        "width": 720,
-        "height": 1400
+        "width": 800,
+        "height": 1600
       },
       "preferredDockedSize": {
-        "width": 360,
-        "height": 720
+        "width": 420,
+        "height": 880
       },
       "preferredFloatingSize": {
-        "width": 460,
-        "height": 820
+        "width": 560,
+        "height": 1000
       },
       "icons": [
         {

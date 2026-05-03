@@ -674,19 +674,21 @@ body.no-key .tab-content.active { display: none !important; }
   gap: 4px;
 }
 .stepper-btn {
-  width: 24px;
-  height: 24px;
+  width: 36px;
+  height: 36px;
   border: 1px solid var(--line);
   border-radius: var(--radius-sm);
   background: var(--surface-2);
   color: var(--ink-200);
   font-family: var(--font-mono);
-  font-size: 13px;
-  font-weight: 600;
+  font-size: 18px;
+  font-weight: 700;
   cursor: pointer;
   padding: 0;
   line-height: 1;
   transition: all 0.16s var(--ease-out);
+  user-select: none;
+  -webkit-user-select: none;
 }
 .stepper-btn:hover {
   border-color: var(--accent);
@@ -695,11 +697,11 @@ body.no-key .tab-content.active { display: none !important; }
 }
 .stepper-btn:active { transform: scale(0.94); }
 .stepper-value {
-  min-width: 28px;
+  min-width: 40px;
   text-align: center;
   font-family: var(--font-mono);
-  font-size: 12px;
-  font-weight: 600;
+  font-size: 14px;
+  font-weight: 700;
   color: var(--ink-100);
   font-feature-settings: "tnum";
 }
@@ -759,35 +761,30 @@ body.no-key .tab-content.active { display: none !important; }
   justify-content: center;
   gap: 8px;
   width: 100%;
-  padding: 12px 16px;
+  min-height: 48px;
+  padding: 14px 18px;
   border: 0 !important;
   border-radius: var(--radius);
   font-family: var(--font-display);
-  font-size: 12.5px;
+  font-size: 13px;
   font-weight: 700;
   letter-spacing: 0.04em;
   cursor: pointer;
   margin-top: 12px;
   text-align: center;
-  transition: transform 0.18s var(--ease-out), box-shadow 0.22s var(--ease-out);
+  transition: box-shadow 0.22s var(--ease-out);
   position: relative;
   overflow: hidden;
   -webkit-appearance: none !important;
   appearance: none !important;
   outline: none !important;
+  pointer-events: auto !important;
 }
-/* UXP'de transform animation bug'lı — beyaz shimmer overlay buton üzerinde
- * statik kalabiliyor. Hover'da opacity-based ince glow ile değiştirildi. */
-.btn::after {
-  content: "";
-  position: absolute;
-  inset: 0;
-  background: linear-gradient(120deg, transparent 30%, rgba(255, 255, 255, 0.12) 50%, transparent 70%);
-  opacity: 0;
-  transition: opacity 0.22s var(--ease-out);
-  pointer-events: none;
+/* UXP hit-test bug: child elementler ve pseudo-overlay'ler click event'i
+ * yutabiliyor. Tüm child'ları pointer-events:none yap → click hep .btn'e gider. */
+.btn > *, .btn::before, .btn::after {
+  pointer-events: none !important;
 }
-.btn:hover::after { opacity: 1; }
 
 .btn-primary {
   background: var(--accent) !important;
@@ -1748,7 +1745,7 @@ button.field-toggle:hover {
 }
 .field-toggle svg { stroke: #ffffff !important; fill: none !important; }
 
-/* Stepper butonları */
+/* Stepper butonları — büyük tıklama hedefi */
 .stepper-btn,
 button.stepper-btn {
   background: #332272 !important;
@@ -1756,6 +1753,13 @@ button.stepper-btn {
   background-image: none !important;
   color: #ffffff !important;
   border: 1px solid #7b53f4 !important;
+  width: 36px !important;
+  height: 36px !important;
+  font-size: 18px !important;
+  font-weight: 700 !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
 }
 .stepper-btn:hover,
 button.stepper-btn:hover {
@@ -2911,20 +2915,20 @@ button::before {
               default: "PremierSEYO Studio"
             },
             minimumSize: {
-              width: 320,
-              height: 480
+              width: 360,
+              height: 600
             },
             maximumSize: {
-              width: 720,
-              height: 1400
+              width: 800,
+              height: 1600
             },
             preferredDockedSize: {
-              width: 360,
-              height: 720
+              width: 420,
+              height: 880
             },
             preferredFloatingSize: {
-              width: 460,
-              height: 820
+              width: 560,
+              height: 1e3
             },
             icons: [
               {
