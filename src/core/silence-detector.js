@@ -2,7 +2,7 @@
  * Sessizlik tespiti — daemon uzerinden FFmpeg silencedetect
  */
 
-const daemon = require("../utils/daemon");
+const daemon = require("../utils/transport");
 
 /**
  * @typedef {Object} SilenceRegion

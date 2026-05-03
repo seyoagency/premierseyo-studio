@@ -6,7 +6,7 @@
  * formatina cevirir (eski Whisper parser'ın çıkış sözleşmesi korunur).
  */
 
-const daemon = require("../utils/daemon");
+const daemon = require("../utils/transport");
 
 /**
  * @typedef {Object} Word

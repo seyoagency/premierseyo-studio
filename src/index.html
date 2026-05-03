@@ -2438,6 +2438,64 @@ button::before {
     }
   });
 
+  // src/utils/transport.js
+  var require_transport = __commonJS({
+    "src/utils/transport.js"(exports, module) {
+      var daemon2 = require_daemon();
+      async function call(path, body, timeoutMs) {
+        return daemon2.call(path, body, timeoutMs);
+      }
+      async function ping() {
+        return daemon2.ping();
+      }
+      async function check() {
+        return daemon2.check();
+      }
+      async function exportAudio(opts) {
+        return daemon2.exportAudio(opts);
+      }
+      async function silenceDetect(opts) {
+        return daemon2.silenceDetect(opts);
+      }
+      async function transcribe(opts) {
+        return daemon2.transcribe(opts);
+      }
+      async function writeFile(opts) {
+        return daemon2.writeFile(opts);
+      }
+      async function reveal(filePath) {
+        return daemon2.reveal(filePath);
+      }
+      async function getHomeDirs() {
+        return daemon2.getHomeDirs();
+      }
+      async function log(tag, message) {
+        return daemon2.log(tag, message);
+      }
+      async function setDeepgramKey(key) {
+        return daemon2.setDeepgramKey(key);
+      }
+      async function deepgramTest(tempKey) {
+        return daemon2.deepgramTest(tempKey);
+      }
+      module.exports = {
+        call,
+        ping,
+        check,
+        exportAudio,
+        silenceDetect,
+        transcribe,
+        writeFile,
+        reveal,
+        getHomeDirs,
+        log,
+        setDeepgramKey,
+        deepgramTest,
+        DAEMON_URL: daemon2.DAEMON_URL
+      };
+    }
+  });
+
   // src/utils/time.js
   var require_time = __commonJS({
     "src/utils/time.js"(exports, module) {
@@ -2620,7 +2678,7 @@ button::before {
   // src/core/audio-exporter.js
   var require_audio_exporter = __commonJS({
     "src/core/audio-exporter.js"(exports, module) {
-      var daemon2 = require_daemon();
+      var daemon2 = require_transport();
       var timelineMapper = require_timeline_mapper();
       async function exportAudio({ sampleRate = 48e3, mono = false, suffix = "" } = {}) {
         const ppro = __require("premierepro");
@@ -2717,7 +2775,7 @@ button::before {
   // src/core/silence-detector.js
   var require_silence_detector = __commonJS({
     "src/core/silence-detector.js"(exports, module) {
-      var daemon2 = require_daemon();
+      var daemon2 = require_transport();
       async function detect(audioPath, { noiseThreshold = -35, minDuration = 0.4 } = {}) {
         const res = await daemon2.silenceDetect({
           audioPath,
@@ -2857,7 +2915,7 @@ button::before {
   // src/core/transcriber.js
   var require_transcriber = __commonJS({
     "src/core/transcriber.js"(exports, module) {
-      var daemon2 = require_daemon();
+      var daemon2 = require_transport();
       async function transcribe(audioPath, { language = "tr", keyterm = null } = {}) {
         const res = await daemon2.transcribe({ audioPath, language, keyterm });
         return parseDeepgramOutput(res.result);
@@ -3002,7 +3060,7 @@ button::before {
   // src/srt/srt-writer.js
   var require_srt_writer = __commonJS({
     "src/srt/srt-writer.js"(exports, module) {
-      var daemon2 = require_daemon();
+      var daemon2 = require_transport();
       var timeUtils2 = require_time();
       function generate(captions) {
         return captions.map((cap) => {
@@ -3025,7 +3083,7 @@ ${cap.text}`;
   // src/srt/vtt-writer.js
   var require_vtt_writer = __commonJS({
     "src/srt/vtt-writer.js"(exports, module) {
-      var daemon2 = require_daemon();
+      var daemon2 = require_transport();
       function secondsToVTT(seconds) {
         const totalMs = Math.max(0, Math.round(Number(seconds || 0) * 1e3));
         const h = Math.floor(totalMs / 36e5);
@@ -3134,7 +3192,7 @@ ${cap.text}`;
     "src/timeline/effects-preserver.js"(exports, module) {
       function logDeep(tag, msg) {
         try {
-          const daemon2 = require_daemon();
+          const daemon2 = require_transport();
           daemon2.log(tag, msg);
         } catch {
         }
@@ -3575,7 +3633,7 @@ ${cap.text}`;
       var effectsPreserver = require_effects_preserver();
       function logFx(tag, msg) {
         try {
-          const daemon2 = require_daemon();
+          const daemon2 = require_transport();
           daemon2.log(tag, msg);
         } catch {
         }
@@ -4021,7 +4079,7 @@ ${cap.text}`;
   var reconstructor;
   try {
     config = require_config();
-    daemon = require_daemon();
+    daemon = require_transport();
     timeUtils = require_time();
     audioExporter = require_audio_exporter();
     silenceDetector = require_silence_detector();

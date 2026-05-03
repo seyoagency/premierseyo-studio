@@ -21,7 +21,7 @@ let duplicator, seqEditor, reconstructor;
 
 try {
   config = require("./utils/config");
-  daemon = require("./utils/daemon");
+  daemon = require("./utils/transport");
   timeUtils = require("./utils/time");
   audioExporter = require("./core/audio-exporter");
   silenceDetector = require("./core/silence-detector");

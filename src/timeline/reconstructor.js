@@ -31,7 +31,7 @@ const effectsPreserver = require("./effects-preserver");
 // runtime davranışını görebilmek için). Hata olursa silent skip.
 function logFx(tag, msg) {
   try {
-    const daemon = require("../utils/daemon");
+    const daemon = require("../utils/transport");
     daemon.log(tag, msg);
   } catch {}
   console.log(`[${tag}]`, msg);

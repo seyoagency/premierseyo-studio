@@ -2,7 +2,7 @@
  * WebVTT dosya yazici — daemon araciligiyla
  */
 
-const daemon = require("../utils/daemon");
+const daemon = require("../utils/transport");
 
 /**
  * Saniyeyi VTT timestamp formatina cevir (HH:MM:SS.mmm)

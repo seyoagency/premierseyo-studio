@@ -2,7 +2,7 @@
  * SRT dosya yazici — daemon uzerinden yazar (UXP filesystem sandbox disina)
  */
 
-const daemon = require("../utils/daemon");
+const daemon = require("../utils/transport");
 const timeUtils = require("../utils/time");
 
 /**

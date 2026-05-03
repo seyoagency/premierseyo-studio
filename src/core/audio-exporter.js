@@ -11,7 +11,7 @@
  * yapmiyordu).
  */
 
-const daemon = require("../utils/daemon");
+const daemon = require("../utils/transport");
 const timelineMapper = require("../timeline/timeline-mapper");
 
 /**

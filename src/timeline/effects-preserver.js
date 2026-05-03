@@ -26,7 +26,7 @@
 
 function logDeep(tag, msg) {
   try {
-    const daemon = require("../utils/daemon");
+    const daemon = require("../utils/transport");
     daemon.log(tag, msg);
   } catch {}
 }
