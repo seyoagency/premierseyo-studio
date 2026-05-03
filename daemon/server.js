@@ -21,7 +21,9 @@ const os = require("os");
 const deepgram = require("./deepgram-client");
 
 const PORT = parseInt(process.env.PREMIERSEYO_PORT || process.env.PREMIERECUT_PORT || "53117");
-const TMP_DIR = path.join(os.tmpdir(), "premier-seyo");
+// UXP plugin sandbox /var/folders/... (os.tmpdir) path'ine erişemiyor.
+// Kullanıcı home altındaki Library/Caches'e yaz — plugin fs.statSync ile okuyabilir.
+const TMP_DIR = path.join(os.homedir(), "Library", "Caches", "PremierSEYO_Studio", "audio");
 const TOKEN_DIR = path.join(os.homedir(), ".config", "premier-seyo");
 const TOKEN_FILE = path.join(TOKEN_DIR, "token");
 function buildPathEnv() {
