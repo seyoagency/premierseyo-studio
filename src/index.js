@@ -550,11 +550,13 @@ async function handleAnalyze() {
   setStatus("İşlem başladı — sequence uzunluğuna göre 1-3 dakika sürebilir, lütfen bekleyin...");
 
   try {
-    updateProgress("cut", 10, "1/4 — AME ile ses çıkarılıyor (ilk açılışta 15-30 sn AME başlar, sonraki çağrılar hızlı)...");
+    updateProgress("cut", 10, "1/4 — Sequence'den ses çıkarılıyor (FFmpeg ile mixdown, 30 sn-2 dk sürebilir)...");
     const exported = await audioExporter.exportAudio({
+      sampleRate: 48000,
+      mono: true,
       onProgress: (pct) => {
         const p = Math.max(10, Math.min(35, 10 + Math.round((pct || 0) * 0.25)));
-        updateProgress("cut", p, `1/4 — AME render %${Math.round(pct || 0)}`);
+        updateProgress("cut", p, `1/4 — Mixdown %${Math.round(pct || 0)}`);
       },
     });
     currentAudioPath = exported.outputPath;
@@ -685,12 +687,14 @@ async function handleTranscribe() {
   setStatus("Transkript başladı — sequence uzunluğuna göre 1-2 dakika sürebilir, lütfen bekleyin...");
 
   try {
-    updateProgress("srt", 10, "1/5 — AME ile ses çıkarılıyor (ilk açılışta 15-30 sn AME başlar, sonraki çağrılar hızlı)...");
+    updateProgress("srt", 10, "1/5 — Sequence'den ses çıkarılıyor (FFmpeg ile mixdown, 30 sn-1 dk)...");
     const { outputPath: audioPath } = await audioExporter.exportAudio({
+      sampleRate: 16000,
+      mono: true,
       suffix: "-srt",
       onProgress: (pct) => {
         const p = Math.max(10, Math.min(30, 10 + Math.round((pct || 0) * 0.20)));
-        updateProgress("srt", p, `1/5 — AME render %${Math.round(pct || 0)}`);
+        updateProgress("srt", p, `1/5 — Mixdown %${Math.round(pct || 0)}`);
       },
     });
     currentAudioPath = audioPath;

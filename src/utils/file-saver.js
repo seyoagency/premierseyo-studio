@@ -31,14 +31,25 @@ async function writeAtPath(filePath, content) {
   if (content == null) throw new Error("content gerekli");
 
   const fs = require("fs");
-  const path = require("path");
 
-  // Klasör yoksa recursive oluştur
-  try {
-    fs.mkdirSync(path.dirname(filePath), { recursive: true });
-  } catch {
-    // Bazı UXP sürümlerinde mkdirSync recursive flag desteklemeyebilir;
-    // o zaman parça parça oluşturulması lazım — şimdilik silent geç.
+  // Manuel dirname (UXP path modülü güvenilmez)
+  const sep = filePath.indexOf("\\") >= 0 ? "\\" : "/";
+  const lastSep = filePath.lastIndexOf(sep);
+  const dir = lastSep > 0 ? filePath.slice(0, lastSep) : "";
+
+  if (dir) {
+    // UXP mkdirSync recursive desteklemiyor — parça parça
+    const parts = dir.split(sep);
+    let cur = parts[0] || sep;
+    for (let i = 1; i < parts.length; i++) {
+      if (!parts[i]) continue;
+      cur = `${cur}${sep}${parts[i]}`;
+      try {
+        fs.mkdirSync(cur);
+      } catch {
+        // klasör zaten var veya başka fail — devam
+      }
+    }
   }
 
   fs.writeFileSync(filePath, content, "utf-8");
@@ -78,8 +89,10 @@ async function revealInOS(filePath) {
   const shell = getShell();
   if (!shell) return { ok: false, error: "shell modülü yok" };
 
-  const path = require("path");
-  const dirPath = path.dirname(filePath);
+  // Manuel dirname (UXP path modülü güvenilmez)
+  const sep = filePath.indexOf("\\") >= 0 ? "\\" : "/";
+  const lastSep = filePath.lastIndexOf(sep);
+  const dirPath = lastSep > 0 ? filePath.slice(0, lastSep) : filePath;
 
   try {
     if (typeof shell.openPath === "function") {
@@ -105,7 +118,6 @@ async function revealInOS(filePath) {
  */
 async function getHomeDirs() {
   const os = require("os");
-  const path = require("path");
   let homeDir = "";
   try {
     homeDir = os.homedir() || "";
@@ -113,18 +125,18 @@ async function getHomeDirs() {
     homeDir = "";
   }
   if (!homeDir) {
-    // Fallback: UXP getDataFolder altına yaz (plugin'e özel sandboxed yer)
     try {
       const lfs = require("uxp").storage.localFileSystem;
       const dataFolder = await lfs.getDataFolder();
       homeDir = dataFolder.nativePath;
     } catch {
       throw new Error(
-        "Kullanıcı dizini bulunamadı (UXP runtime sınırlaması). 'Save As' diyaloğu kullanılacak."
+        "Kullanıcı dizini bulunamadı (UXP runtime sınırlaması)."
       );
     }
   }
-  const documentsDir = path.join(homeDir, "Documents");
+  const sep = homeDir.indexOf("\\") >= 0 ? "\\" : "/";
+  const documentsDir = `${homeDir}${sep}Documents`;
   return { homeDir, documentsDir };
 }
 

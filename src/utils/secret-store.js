@@ -105,12 +105,13 @@ async function migrateFromLegacy() {
     return false;
   }
 
-  // Legacy dosyalarini oku
+  // Legacy dosyalarini oku (UXP path.join güvenilmez — manuel concat)
   try {
     const fs = require("fs");
     const os = require("os");
-    const path = require("path");
-    const legacyKeyPath = path.join(os.homedir(), ".config", "premier-seyo", "deepgram.key");
+    const home = os.homedir();
+    const sep = home.indexOf("\\") >= 0 ? "\\" : "/";
+    const legacyKeyPath = `${home}${sep}.config${sep}premier-seyo${sep}deepgram.key`;
     const content = fs.readFileSync(legacyKeyPath, "utf-8").trim();
     if (content && content.length >= 32) {
       await setKey(content);

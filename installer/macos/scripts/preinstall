@@ -1,0 +1,46 @@
+#!/bin/bash
+# PremierSEYO macOS preinstall — eski surum temizligi
+# Calistigi context: root (Apple Installer)
+# Once gercek konsol kullanicisini bul, sonra onun home'unda eski LaunchAgent'lari unload et.
+
+set -u
+
+CONSOLE_USER=$(stat -f "%Su" /dev/console 2>/dev/null || echo "")
+if [ -z "$CONSOLE_USER" ] || [ "$CONSOLE_USER" = "root" ] || [ "$CONSOLE_USER" = "loginwindow" ]; then
+  echo "[preinstall] WARN: konsol kullanicisi tespit edilemedi, atlaniyor"
+  exit 0
+fi
+
+USER_HOME=$(eval echo "~$CONSOLE_USER")
+USER_UID=$(id -u "$CONSOLE_USER" 2>/dev/null || echo "")
+
+echo "[preinstall] user=$CONSOLE_USER home=$USER_HOME uid=$USER_UID"
+
+# Eski LaunchAgent'lari unload et (premiere-cut + premier-seyo + premiercut + premierecut isimlerinin hepsi)
+for LABEL in com.seyoweb.premierseyo.daemon com.seyoweb.premierecut.daemon com.seyoweb.premiercut.daemon; do
+  if [ -n "$USER_UID" ]; then
+    sudo -u "$CONSOLE_USER" launchctl bootout "gui/$USER_UID/$LABEL" 2>/dev/null || true
+  fi
+done
+
+# Eski plist dosyalarini sil
+for PLIST in \
+  "$USER_HOME/Library/LaunchAgents/com.seyoweb.premierseyo.daemon.plist" \
+  "$USER_HOME/Library/LaunchAgents/com.seyoweb.premierecut.daemon.plist" \
+  "$USER_HOME/Library/LaunchAgents/com.seyoweb.premiercut.daemon.plist"
+do
+  if [ -f "$PLIST" ]; then
+    rm -f "$PLIST"
+    echo "[preinstall] silindi: $PLIST"
+  fi
+done
+
+# Eski plugin install dizinlerini temizle (versiyonlu)
+PLUGIN_BASE="$USER_HOME/Library/Application Support/Adobe/UXP/Plugins/External"
+if [ -d "$PLUGIN_BASE" ]; then
+  for D in "$PLUGIN_BASE"/com.seyoweb.premierseyo_* "$PLUGIN_BASE"/com.seyoweb.premiercut_* "$PLUGIN_BASE"/com.seyoweb.premiercut*; do
+    [ -d "$D" ] && rm -rf "$D" && echo "[preinstall] silindi: $D"
+  done
+fi
+
+exit 0

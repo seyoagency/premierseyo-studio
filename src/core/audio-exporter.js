@@ -1,24 +1,21 @@
 /**
- * Sequence audio mixdown — Adobe Media Encoder (AME) üzerinden.
+ * Sequence audio mixdown — local helper daemon (FFmpeg) ile.
  *
- * v1 daemon FFmpeg /build-sequence-audio yerine AME EncoderManager.exportSequence.
- * Plugin sequence'i AME'ye gönderir, AME Premiere'in kendi mixdown logic'iyle WAV
- * üretir (effects, levels, fades dahil — FFmpeg'in concat+atrim'inden daha doğru).
+ * v2 hibrit mimari: plugin self-contained (UI, secret-store, Deepgram client,
+ * auto-update) + audio mixdown için lokal daemon (Node + FFmpeg).
+ * Daemon tek-tık installer ile kullanıcı bilgisayarına kuruluyor.
  *
- * collectSequenceClips() reconstructor için clipsMeta sağlamaya devam eder
- * (Auto-Cut Apply'ın source clip mapping'i için gerekli).
+ * Daemon endpoint: POST http://127.0.0.1:53117/build-sequence-audio
+ *   body: { clips, sampleRate, mono }
+ *   resp: { ok, outputPath }
  */
 
-const ameExporter = require("./ame-exporter");
-const fileSaver = require("../utils/file-saver");
+const timelineMapper = require("../timeline/timeline-mapper");
 
-/**
- * Active sequence'in tüm audio mixdown'ını WAV olarak export et.
- * @param {object} options
- *   onProgress: (percent: number) => void  — AME render percent
- * @returns {Promise<{ outputPath: string, clips: object[] }>}
- */
-async function exportAudio({ suffix = "", onProgress } = {}) {
+const DAEMON_URL = "http://127.0.0.1:53117";
+const REQUEST_TIMEOUT_MS = 10 * 60 * 1000; // 10 dk
+
+async function exportAudio({ sampleRate = 48000, mono = false, suffix = "", onProgress } = {}) {
   const ppro = require("premierepro");
 
   const project = await ppro.Project.getActiveProject();
@@ -32,30 +29,67 @@ async function exportAudio({ suffix = "", onProgress } = {}) {
     throw new Error("Sequence'de ses klibi bulunamadı");
   }
 
-  const outputPath = await buildOutputPath(sequence, suffix);
+  // Mixdown için overlap'ler tek kaynağa indirilir (flatten); daemon'a flat liste gider.
+  const flattenedForMix = timelineMapper.flattenTimelineClips(clips);
 
-  // AME ile sequence audio render
-  await ameExporter.exportSequenceAudio(sequence, outputPath, { onProgress });
+  if (onProgress) onProgress(20);
 
-  return { outputPath, clips };
+  const res = await daemonCall("/build-sequence-audio", {
+    clips: flattenedForMix,
+    sampleRate,
+    mono,
+    suffix,
+  });
+
+  if (onProgress) onProgress(100);
+
+  // Reconstructor effects 1-1 mapping için ham unique listeyi döndür (flatten değil)
+  return { outputPath: res.outputPath, clips };
 }
 
-/**
- * Mixdown WAV için output path. ~/Documents/PremierSEYO Studio/.cache altında.
- */
-async function buildOutputPath(sequence, suffix) {
-  const path = require("path");
-  const seqName = (sequence.name || "sequence").replace(/[^a-zA-Z0-9_-]/g, "_");
-  const { documentsDir } = await fileSaver.getHomeDirs();
-  const cacheDir = path.join(documentsDir, "PremierSEYO Studio", ".cache");
-  const filename = `${seqName}${suffix || ""}-mixdown.wav`;
-  return path.join(cacheDir, filename);
+async function daemonCall(path, body) {
+  const url = DAEMON_URL + path;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+
+  try {
+    const headers = {
+      "Content-Type": "application/json",
+      "X-Premiere-Cut-Client": "premierseyo-uxp",
+    };
+    const res = await fetch(url, {
+      method: "POST",
+      headers,
+      body: JSON.stringify(body),
+      signal: controller.signal,
+    });
+
+    if (!res.ok) {
+      let errMsg = `HTTP ${res.status}`;
+      try {
+        const errBody = await res.json();
+        errMsg = errBody.error || errMsg;
+      } catch {}
+      throw new Error(errMsg);
+    }
+
+    return await res.json();
+  } catch (e) {
+    if (e.name === "AbortError") {
+      throw new Error("Daemon timeout (10dk). FFmpeg çok uzun süredir çalışıyor.");
+    }
+    if (e.message && /fetch|network|ECONNREFUSED/i.test(e.message)) {
+      throw new Error(
+        "PremierSEYO daemon'a ulaşılamıyor. Daemon kurulu mu? " +
+        "Kurulum: README'deki tek-tık installer'ı indir ve çalıştır."
+      );
+    }
+    throw e;
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
-/**
- * Sequence'deki TUM audio track clip'lerini, source info + timeline position
- * ile topla. Audio yoksa video tracks'ten ses çekilir (videonun audio kanalı).
- */
 async function collectSequenceClips(sequence) {
   const ppro = require("premierepro");
   const clips = [];
@@ -92,7 +126,7 @@ async function collectSequenceClips(sequence) {
     : tracks;
 
   for (const { track, trackIndex } of finalTracks) {
-    const items = await track.getTrackItems(1, false); // Clip only
+    const items = await track.getTrackItems(1, false);
     if (!items) continue;
 
     for (const item of items) {
@@ -110,23 +144,18 @@ async function collectSequenceClips(sequence) {
       const inPoint = await item.getInPoint();
       const outPoint = await item.getOutPoint();
 
-      const timelineStart = startTime.seconds;
-      const duration = endTime.seconds - startTime.seconds;
-      const sourceIn = inPoint.seconds;
-      const sourceOut = outPoint.seconds;
-
       clips.push({
         path: filePath,
-        sourceIn,
-        sourceOut,
-        timelineStart,
-        duration,
+        sourceIn: inPoint.seconds,
+        sourceOut: outPoint.seconds,
+        timelineStart: startTime.seconds,
+        duration: endTime.seconds - startTime.seconds,
         trackIndex: Number.isFinite(trackIndex) ? trackIndex : 0,
       });
     }
   }
 
-  // Audio + video track'lerde aynı clip ise dedupe
+  // Audio + video track'lerinde aynı clip'i dedupe
   const unique = [];
   const seen = new Set();
   for (const c of clips) {

@@ -2430,8 +2430,9 @@ button::before {
         try {
           const fs = __require("fs");
           const os = __require("os");
-          const path = __require("path");
-          const legacyKeyPath = path.join(os.homedir(), ".config", "premier-seyo", "deepgram.key");
+          const home = os.homedir();
+          const sep = home.indexOf("\\") >= 0 ? "\\" : "/";
+          const legacyKeyPath = `${home}${sep}.config${sep}premier-seyo${sep}deepgram.key`;
           const content = fs.readFileSync(legacyKeyPath, "utf-8").trim();
           if (content && content.length >= 32) {
             await setKey(content);
@@ -2674,10 +2675,20 @@ button::before {
         }
         if (content == null) throw new Error("content gerekli");
         const fs = __require("fs");
-        const path = __require("path");
-        try {
-          fs.mkdirSync(path.dirname(filePath), { recursive: true });
-        } catch {
+        const sep = filePath.indexOf("\\") >= 0 ? "\\" : "/";
+        const lastSep = filePath.lastIndexOf(sep);
+        const dir = lastSep > 0 ? filePath.slice(0, lastSep) : "";
+        if (dir) {
+          const parts = dir.split(sep);
+          let cur = parts[0] || sep;
+          for (let i = 1; i < parts.length; i++) {
+            if (!parts[i]) continue;
+            cur = `${cur}${sep}${parts[i]}`;
+            try {
+              fs.mkdirSync(cur);
+            } catch {
+            }
+          }
         }
         fs.writeFileSync(filePath, content, "utf-8");
         return filePath;
@@ -2700,8 +2711,9 @@ button::before {
         if (!filePath) return { ok: false, error: "filePath yok" };
         const shell = getShell();
         if (!shell) return { ok: false, error: "shell mod\xFCl\xFC yok" };
-        const path = __require("path");
-        const dirPath = path.dirname(filePath);
+        const sep = filePath.indexOf("\\") >= 0 ? "\\" : "/";
+        const lastSep = filePath.lastIndexOf(sep);
+        const dirPath = lastSep > 0 ? filePath.slice(0, lastSep) : filePath;
         try {
           if (typeof shell.openPath === "function") {
             await shell.openPath(dirPath);
@@ -2718,7 +2730,6 @@ button::before {
       }
       async function getHomeDirs() {
         const os = __require("os");
-        const path = __require("path");
         let homeDir = "";
         try {
           homeDir = os.homedir() || "";
@@ -2732,11 +2743,12 @@ button::before {
             homeDir = dataFolder.nativePath;
           } catch {
             throw new Error(
-              "Kullan\u0131c\u0131 dizini bulunamad\u0131 (UXP runtime s\u0131n\u0131rlamas\u0131). 'Save As' diyalo\u011Fu kullan\u0131lacak."
+              "Kullan\u0131c\u0131 dizini bulunamad\u0131 (UXP runtime s\u0131n\u0131rlamas\u0131)."
             );
           }
         }
-        const documentsDir = path.join(homeDir, "Documents");
+        const sep = homeDir.indexOf("\\") >= 0 ? "\\" : "/";
+        const documentsDir = `${homeDir}${sep}Documents`;
         return { homeDir, documentsDir };
       }
       module.exports = {
@@ -2848,7 +2860,7 @@ button::before {
       module.exports = {
         id: "com.seyoweb.premierseyostudio",
         name: "PremierSEYO Studio",
-        version: "2.0.0",
+        version: "2.0.1",
         main: "src/index.html",
         host: {
           app: "premierepro",
@@ -3066,130 +3078,152 @@ button::before {
     }
   });
 
-  // src/core/ame-exporter.js
-  var require_ame_exporter = __commonJS({
-    "src/core/ame-exporter.js"(exports, module) {
-      var _isExporting = false;
-      async function exportSequenceAudio(sequence, outputPath, options = {}) {
-        if (_isExporting) {
-          throw new Error("AME zaten render ediyor. Mevcut i\u015F bitmeden tekrar denenemez.");
-        }
-        const ppro = __require("premierepro");
-        const manager = ppro.EncoderManager && ppro.EncoderManager.getManager ? ppro.EncoderManager.getManager() : null;
-        if (!manager) {
-          throw new Error("AME_NOT_AVAILABLE: EncoderManager API yok (Premiere 25.6+ gerekli).");
-        }
-        if (!manager.isAMEInstalled) {
-          throw new Error(
-            "AME_NOT_INSTALLED: Adobe Media Encoder kurulu de\u011Fil. Creative Cloud Desktop'tan \xFCcretsiz y\xFCkle: https://creativecloud.adobe.com/apps/all/desktop?subapp=media-encoder"
-          );
-        }
-        const presetFile = await resolvePresetFile();
-        const exportType = ppro.Constants && ppro.Constants.ExportType ? ppro.Constants.ExportType.IMMEDIATELY : "IMMEDIATELY";
-        ensureOutputDir(outputPath);
-        _isExporting = true;
-        const onProgress = typeof options.onProgress === "function" ? options.onProgress : () => {
-        };
-        return new Promise((resolve, reject) => {
-          let completed = false;
-          const cleanup = () => {
-            try {
-              manager.removeEventListener("EVENT_RENDER_COMPLETE", onComplete);
-            } catch {
-            }
-            try {
-              manager.removeEventListener("EVENT_RENDER_ERROR", onError);
-            } catch {
-            }
-            try {
-              manager.removeEventListener("EVENT_RENDER_PROGRESS", onProgressEvent);
-            } catch {
-            }
-            _isExporting = false;
+  // src/timeline/timeline-mapper.js
+  var require_timeline_mapper = __commonJS({
+    "src/timeline/timeline-mapper.js"(exports, module) {
+      var EPS = 1e-4;
+      function comparePriority(a, b) {
+        const trackA = Number.isFinite(a.trackIndex) ? a.trackIndex : Number.MAX_SAFE_INTEGER;
+        const trackB = Number.isFinite(b.trackIndex) ? b.trackIndex : Number.MAX_SAFE_INTEGER;
+        if (trackA !== trackB) return trackA - trackB;
+        const orderA = Number.isFinite(a.originalIndex) ? a.originalIndex : Number.MAX_SAFE_INTEGER;
+        const orderB = Number.isFinite(b.originalIndex) ? b.originalIndex : Number.MAX_SAFE_INTEGER;
+        if (orderA !== orderB) return orderA - orderB;
+        return (a.timelineStart || 0) - (b.timelineStart || 0);
+      }
+      function flattenTimelineClips(clips) {
+        if (!Array.isArray(clips) || clips.length === 0) return [];
+        const normalized = clips.map((clip, index) => {
+          const timelineStart = Number(clip.timelineStart) || 0;
+          const duration = Number(clip.duration) || 0;
+          const sourceIn = Number(clip.sourceIn) || 0;
+          const sourceOut = Number(clip.sourceOut) || sourceIn + duration;
+          const trackIndex = Number.isFinite(Number(clip.trackIndex)) ? Number(clip.trackIndex) : Number.MAX_SAFE_INTEGER;
+          if (!clip || !clip.path || duration <= EPS) return null;
+          return {
+            ...clip,
+            timelineStart,
+            timelineEnd: timelineStart + duration,
+            duration,
+            sourceIn,
+            sourceOut,
+            trackIndex,
+            originalIndex: index
           };
-          const onComplete = () => {
-            if (completed) return;
-            completed = true;
-            cleanup();
-            resolve(outputPath);
-          };
-          const onError = (e) => {
-            if (completed) return;
-            completed = true;
-            cleanup();
-            const msg = e && (e.message || e.detail || e.error) || "AME render hatas\u0131";
-            reject(new Error(humanizeAMEError(msg)));
-          };
-          const onProgressEvent = (e) => {
-            const pct = e && (e.percent || e.progress || e.detail);
-            if (typeof pct === "number") onProgress(pct);
-          };
-          try {
-            manager.addEventListener("EVENT_RENDER_COMPLETE", onComplete);
-            manager.addEventListener("EVENT_RENDER_ERROR", onError);
-            manager.addEventListener("EVENT_RENDER_PROGRESS", onProgressEvent);
-          } catch (e) {
-            cleanup();
-            reject(new Error(`AME event listener ba\u011Flanamad\u0131: ${e.message}`));
-            return;
-          }
-          Promise.resolve().then(() => manager.exportSequence(sequence, exportType, outputPath, presetFile || "", true)).then((ok) => {
-            if (ok === false) {
-              cleanup();
-              reject(new Error("AME exportSequence \xE7a\u011Fr\u0131s\u0131 ba\u015Far\u0131s\u0131z (false d\xF6nd\xFC). Sequence'de ses var m\u0131 kontrol et."));
-            }
-          }).catch((e) => {
-            cleanup();
-            reject(new Error(humanizeAMEError(e.message || String(e))));
+        }).filter(Boolean);
+        if (normalized.length === 0) return [];
+        const boundaries = Array.from(new Set(
+          normalized.flatMap((clip) => [clip.timelineStart, clip.timelineEnd])
+        )).sort((a, b) => a - b);
+        const flattened = [];
+        for (let i = 0; i < boundaries.length - 1; i++) {
+          const sliceStart = boundaries[i];
+          const sliceEnd = boundaries[i + 1];
+          if (sliceEnd - sliceStart <= EPS) continue;
+          const covering = normalized.filter((clip) => clip.timelineStart < sliceEnd - EPS && clip.timelineEnd > sliceStart + EPS).sort(comparePriority);
+          if (covering.length === 0) continue;
+          const winner = covering[0];
+          const start = Math.max(sliceStart, winner.timelineStart);
+          const end = Math.min(sliceEnd, winner.timelineEnd);
+          if (end - start <= EPS) continue;
+          flattened.push({
+            path: winner.path,
+            sourceIn: winner.sourceIn + (start - winner.timelineStart),
+            sourceOut: winner.sourceIn + (end - winner.timelineStart),
+            timelineStart: start,
+            duration: end - start,
+            trackIndex: winner.trackIndex,
+            originalIndex: winner.originalIndex
           });
-        });
-      }
-      async function resolvePresetFile() {
-        try {
-          const lfs = __require("uxp").storage.localFileSystem;
-          const pluginFolder = await lfs.getPluginFolder();
-          const presetFile = await pluginFolder.getEntry("presets/audio-mixdown.epr").catch(() => null);
-          if (presetFile) {
-            return presetFile.nativePath;
+        }
+        const merged = [];
+        for (const piece of flattened) {
+          const last = merged[merged.length - 1];
+          const pieceEnd = piece.timelineStart + piece.duration;
+          if (last && last.path === piece.path && last.trackIndex === piece.trackIndex && Math.abs(last.timelineStart + last.duration - piece.timelineStart) <= EPS && Math.abs(last.sourceOut - piece.sourceIn) <= EPS) {
+            last.duration = pieceEnd - last.timelineStart;
+            last.sourceOut = piece.sourceOut;
+          } else {
+            merged.push({ ...piece });
           }
-        } catch {
         }
-        return null;
+        return merged;
       }
-      function ensureOutputDir(outputPath) {
-        const fs = __require("fs");
-        const path = __require("path");
-        try {
-          fs.mkdirSync(path.dirname(outputPath), { recursive: true });
-        } catch {
-        }
+      function splitKeepSegmentByClips(keep, clips) {
+        if (!keep || !(keep.end > keep.start)) return [];
+        if (!Array.isArray(clips) || clips.length === 0) return [];
+        const canonicalClips = flattenTimelineClips(clips);
+        return splitKeepSegmentByCanonicalClips(keep, canonicalClips);
       }
-      function humanizeAMEError(msg) {
-        const m = String(msg || "");
-        if (/codec|preset/i.test(m)) {
-          return "AME preset/codec hatas\u0131. Plugin yeniden kurulmal\u0131 veya Premiere g\xFCncellenmeli.";
+      function splitKeepSegmentByCanonicalClips(keep, canonicalClips) {
+        if (!keep || !(keep.end > keep.start)) return [];
+        if (!Array.isArray(canonicalClips) || canonicalClips.length === 0) return [];
+        const pieces = [];
+        for (const clip of canonicalClips) {
+          if (!clip || !clip.path) continue;
+          const timelineStart = Number(clip.timelineStart) || 0;
+          const duration = Number(clip.duration) || 0;
+          if (duration <= EPS) continue;
+          const clipEnd = timelineStart + duration;
+          const overlapStart = Math.max(keep.start, timelineStart);
+          const overlapEnd = Math.min(keep.end, clipEnd);
+          if (overlapEnd - overlapStart <= EPS) continue;
+          const sourceInBase = Number(clip.sourceIn) || 0;
+          const srcIn = sourceInBase + (overlapStart - timelineStart);
+          const srcOut = sourceInBase + (overlapEnd - timelineStart);
+          pieces.push({
+            path: clip.path,
+            sourceIn: srcIn,
+            sourceOut: srcOut,
+            timelineStart: overlapStart,
+            duration: overlapEnd - overlapStart,
+            // effects-preserver eşleşmesi için orijinal clip kaynağı:
+            originalIndex: typeof clip.originalIndex === "number" ? clip.originalIndex : null,
+            originalTrackIndex: typeof clip.trackIndex === "number" ? clip.trackIndex : null,
+            originalTimelineStart: typeof clip.timelineStart === "number" ? clip.timelineStart : null
+          });
         }
-        if (/disk|space|kapasit/i.test(m)) {
-          return "Disk dolu \u2014 AME \xE7\u0131kt\u0131 yazam\u0131yor. Yer a\xE7 ve tekrar dene.";
-        }
-        if (/permission|izin|access/i.test(m)) {
-          return "AME hedef klas\xF6re yazma izni alamad\u0131. \xC7\u0131kt\u0131 yolunu kontrol et.";
-        }
-        if (/cancel/i.test(m)) {
-          return "AME render iptal edildi.";
-        }
-        return `AME render hatas\u0131: ${m}`;
+        pieces.sort((a, b) => a.timelineStart - b.timelineStart);
+        return pieces;
       }
-      module.exports = { exportSequenceAudio };
+      function splitAllKeeps(keepSegments, clips) {
+        if (!Array.isArray(keepSegments)) return [];
+        const canonicalClips = flattenTimelineClips(clips);
+        const all = [];
+        for (const keep of keepSegments) {
+          const parts = splitKeepSegmentByCanonicalClips(keep, canonicalClips);
+          for (const p of parts) all.push(p);
+        }
+        all.sort((a, b) => a.timelineStart - b.timelineStart);
+        return all;
+      }
+      function totalPieceDuration(pieces) {
+        if (!Array.isArray(pieces)) return 0;
+        return pieces.reduce((sum, p) => sum + (p.duration || 0), 0);
+      }
+      function uniqueSourcePaths(pieces) {
+        const set = /* @__PURE__ */ new Set();
+        if (!Array.isArray(pieces)) return [];
+        for (const p of pieces) if (p && p.path) set.add(p.path);
+        return Array.from(set);
+      }
+      module.exports = {
+        flattenTimelineClips,
+        splitKeepSegmentByClips,
+        splitAllKeeps,
+        totalPieceDuration,
+        uniqueSourcePaths
+      };
     }
   });
 
   // src/core/audio-exporter.js
   var require_audio_exporter = __commonJS({
     "src/core/audio-exporter.js"(exports, module) {
-      var ameExporter = require_ame_exporter();
-      var fileSaver = require_file_saver();
-      async function exportAudio({ suffix = "", onProgress } = {}) {
+      var timelineMapper = require_timeline_mapper();
+      var DAEMON_URL = "http://127.0.0.1:53117";
+      var REQUEST_TIMEOUT_MS = 10 * 60 * 1e3;
+      async function exportAudio({ sampleRate = 48e3, mono = false, suffix = "", onProgress } = {}) {
         const ppro = __require("premierepro");
         const project = await ppro.Project.getActiveProject();
         if (!project) throw new Error("Aktif proje yok");
@@ -3199,17 +3233,55 @@ button::before {
         if (clips.length === 0) {
           throw new Error("Sequence'de ses klibi bulunamad\u0131");
         }
-        const outputPath = await buildOutputPath(sequence, suffix);
-        await ameExporter.exportSequenceAudio(sequence, outputPath, { onProgress });
-        return { outputPath, clips };
+        const flattenedForMix = timelineMapper.flattenTimelineClips(clips);
+        if (onProgress) onProgress(20);
+        const res = await daemonCall("/build-sequence-audio", {
+          clips: flattenedForMix,
+          sampleRate,
+          mono,
+          suffix
+        });
+        if (onProgress) onProgress(100);
+        return { outputPath: res.outputPath, clips };
       }
-      async function buildOutputPath(sequence, suffix) {
-        const path = __require("path");
-        const seqName = (sequence.name || "sequence").replace(/[^a-zA-Z0-9_-]/g, "_");
-        const { documentsDir } = await fileSaver.getHomeDirs();
-        const cacheDir = path.join(documentsDir, "PremierSEYO Studio", ".cache");
-        const filename = `${seqName}${suffix || ""}-mixdown.wav`;
-        return path.join(cacheDir, filename);
+      async function daemonCall(path, body) {
+        const url = DAEMON_URL + path;
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+        try {
+          const headers = {
+            "Content-Type": "application/json",
+            "X-Premiere-Cut-Client": "premierseyo-uxp"
+          };
+          const res = await fetch(url, {
+            method: "POST",
+            headers,
+            body: JSON.stringify(body),
+            signal: controller.signal
+          });
+          if (!res.ok) {
+            let errMsg = `HTTP ${res.status}`;
+            try {
+              const errBody = await res.json();
+              errMsg = errBody.error || errMsg;
+            } catch {
+            }
+            throw new Error(errMsg);
+          }
+          return await res.json();
+        } catch (e) {
+          if (e.name === "AbortError") {
+            throw new Error("Daemon timeout (10dk). FFmpeg \xE7ok uzun s\xFCredir \xE7al\u0131\u015F\u0131yor.");
+          }
+          if (e.message && /fetch|network|ECONNREFUSED/i.test(e.message)) {
+            throw new Error(
+              "PremierSEYO daemon'a ula\u015F\u0131lam\u0131yor. Daemon kurulu mu? Kurulum: README'deki tek-t\u0131k installer'\u0131 indir ve \xE7al\u0131\u015Ft\u0131r."
+            );
+          }
+          throw e;
+        } finally {
+          clearTimeout(timer);
+        }
       }
       async function collectSequenceClips(sequence) {
         const ppro = __require("premierepro");
@@ -3251,16 +3323,12 @@ button::before {
             const endTime = await item.getEndTime();
             const inPoint = await item.getInPoint();
             const outPoint = await item.getOutPoint();
-            const timelineStart = startTime.seconds;
-            const duration = endTime.seconds - startTime.seconds;
-            const sourceIn = inPoint.seconds;
-            const sourceOut = outPoint.seconds;
             clips.push({
               path: filePath,
-              sourceIn,
-              sourceOut,
-              timelineStart,
-              duration,
+              sourceIn: inPoint.seconds,
+              sourceOut: outPoint.seconds,
+              timelineStart: startTime.seconds,
+              duration: endTime.seconds - startTime.seconds,
               trackIndex: Number.isFinite(trackIndex) ? trackIndex : 0
             });
           }
@@ -3698,145 +3766,6 @@ ${cap.text}`;
         getTrackItems,
         getSequenceDuration,
         getSequenceName
-      };
-    }
-  });
-
-  // src/timeline/timeline-mapper.js
-  var require_timeline_mapper = __commonJS({
-    "src/timeline/timeline-mapper.js"(exports, module) {
-      var EPS = 1e-4;
-      function comparePriority(a, b) {
-        const trackA = Number.isFinite(a.trackIndex) ? a.trackIndex : Number.MAX_SAFE_INTEGER;
-        const trackB = Number.isFinite(b.trackIndex) ? b.trackIndex : Number.MAX_SAFE_INTEGER;
-        if (trackA !== trackB) return trackA - trackB;
-        const orderA = Number.isFinite(a.originalIndex) ? a.originalIndex : Number.MAX_SAFE_INTEGER;
-        const orderB = Number.isFinite(b.originalIndex) ? b.originalIndex : Number.MAX_SAFE_INTEGER;
-        if (orderA !== orderB) return orderA - orderB;
-        return (a.timelineStart || 0) - (b.timelineStart || 0);
-      }
-      function flattenTimelineClips(clips) {
-        if (!Array.isArray(clips) || clips.length === 0) return [];
-        const normalized = clips.map((clip, index) => {
-          const timelineStart = Number(clip.timelineStart) || 0;
-          const duration = Number(clip.duration) || 0;
-          const sourceIn = Number(clip.sourceIn) || 0;
-          const sourceOut = Number(clip.sourceOut) || sourceIn + duration;
-          const trackIndex = Number.isFinite(Number(clip.trackIndex)) ? Number(clip.trackIndex) : Number.MAX_SAFE_INTEGER;
-          if (!clip || !clip.path || duration <= EPS) return null;
-          return {
-            ...clip,
-            timelineStart,
-            timelineEnd: timelineStart + duration,
-            duration,
-            sourceIn,
-            sourceOut,
-            trackIndex,
-            originalIndex: index
-          };
-        }).filter(Boolean);
-        if (normalized.length === 0) return [];
-        const boundaries = Array.from(new Set(
-          normalized.flatMap((clip) => [clip.timelineStart, clip.timelineEnd])
-        )).sort((a, b) => a - b);
-        const flattened = [];
-        for (let i = 0; i < boundaries.length - 1; i++) {
-          const sliceStart = boundaries[i];
-          const sliceEnd = boundaries[i + 1];
-          if (sliceEnd - sliceStart <= EPS) continue;
-          const covering = normalized.filter((clip) => clip.timelineStart < sliceEnd - EPS && clip.timelineEnd > sliceStart + EPS).sort(comparePriority);
-          if (covering.length === 0) continue;
-          const winner = covering[0];
-          const start = Math.max(sliceStart, winner.timelineStart);
-          const end = Math.min(sliceEnd, winner.timelineEnd);
-          if (end - start <= EPS) continue;
-          flattened.push({
-            path: winner.path,
-            sourceIn: winner.sourceIn + (start - winner.timelineStart),
-            sourceOut: winner.sourceIn + (end - winner.timelineStart),
-            timelineStart: start,
-            duration: end - start,
-            trackIndex: winner.trackIndex,
-            originalIndex: winner.originalIndex
-          });
-        }
-        const merged = [];
-        for (const piece of flattened) {
-          const last = merged[merged.length - 1];
-          const pieceEnd = piece.timelineStart + piece.duration;
-          if (last && last.path === piece.path && last.trackIndex === piece.trackIndex && Math.abs(last.timelineStart + last.duration - piece.timelineStart) <= EPS && Math.abs(last.sourceOut - piece.sourceIn) <= EPS) {
-            last.duration = pieceEnd - last.timelineStart;
-            last.sourceOut = piece.sourceOut;
-          } else {
-            merged.push({ ...piece });
-          }
-        }
-        return merged;
-      }
-      function splitKeepSegmentByClips(keep, clips) {
-        if (!keep || !(keep.end > keep.start)) return [];
-        if (!Array.isArray(clips) || clips.length === 0) return [];
-        const canonicalClips = flattenTimelineClips(clips);
-        return splitKeepSegmentByCanonicalClips(keep, canonicalClips);
-      }
-      function splitKeepSegmentByCanonicalClips(keep, canonicalClips) {
-        if (!keep || !(keep.end > keep.start)) return [];
-        if (!Array.isArray(canonicalClips) || canonicalClips.length === 0) return [];
-        const pieces = [];
-        for (const clip of canonicalClips) {
-          if (!clip || !clip.path) continue;
-          const timelineStart = Number(clip.timelineStart) || 0;
-          const duration = Number(clip.duration) || 0;
-          if (duration <= EPS) continue;
-          const clipEnd = timelineStart + duration;
-          const overlapStart = Math.max(keep.start, timelineStart);
-          const overlapEnd = Math.min(keep.end, clipEnd);
-          if (overlapEnd - overlapStart <= EPS) continue;
-          const sourceInBase = Number(clip.sourceIn) || 0;
-          const srcIn = sourceInBase + (overlapStart - timelineStart);
-          const srcOut = sourceInBase + (overlapEnd - timelineStart);
-          pieces.push({
-            path: clip.path,
-            sourceIn: srcIn,
-            sourceOut: srcOut,
-            timelineStart: overlapStart,
-            duration: overlapEnd - overlapStart,
-            // effects-preserver eşleşmesi için orijinal clip kaynağı:
-            originalIndex: typeof clip.originalIndex === "number" ? clip.originalIndex : null,
-            originalTrackIndex: typeof clip.trackIndex === "number" ? clip.trackIndex : null,
-            originalTimelineStart: typeof clip.timelineStart === "number" ? clip.timelineStart : null
-          });
-        }
-        pieces.sort((a, b) => a.timelineStart - b.timelineStart);
-        return pieces;
-      }
-      function splitAllKeeps(keepSegments, clips) {
-        if (!Array.isArray(keepSegments)) return [];
-        const canonicalClips = flattenTimelineClips(clips);
-        const all = [];
-        for (const keep of keepSegments) {
-          const parts = splitKeepSegmentByCanonicalClips(keep, canonicalClips);
-          for (const p of parts) all.push(p);
-        }
-        all.sort((a, b) => a.timelineStart - b.timelineStart);
-        return all;
-      }
-      function totalPieceDuration(pieces) {
-        if (!Array.isArray(pieces)) return 0;
-        return pieces.reduce((sum, p) => sum + (p.duration || 0), 0);
-      }
-      function uniqueSourcePaths(pieces) {
-        const set = /* @__PURE__ */ new Set();
-        if (!Array.isArray(pieces)) return [];
-        for (const p of pieces) if (p && p.path) set.add(p.path);
-        return Array.from(set);
-      }
-      module.exports = {
-        flattenTimelineClips,
-        splitKeepSegmentByClips,
-        splitAllKeeps,
-        totalPieceDuration,
-        uniqueSourcePaths
       };
     }
   });
@@ -5194,11 +5123,13 @@ ${cap.text}`;
     showProgress("cut", true, "S\u0131ral\u0131 i\u015Flem ba\u015Flat\u0131l\u0131yor...");
     setStatus("\u0130\u015Flem ba\u015Flad\u0131 \u2014 sequence uzunlu\u011Funa g\xF6re 1-3 dakika s\xFCrebilir, l\xFCtfen bekleyin...");
     try {
-      updateProgress("cut", 10, "1/4 \u2014 AME ile ses \xE7\u0131kar\u0131l\u0131yor (ilk a\xE7\u0131l\u0131\u015Fta 15-30 sn AME ba\u015Flar, sonraki \xE7a\u011Fr\u0131lar h\u0131zl\u0131)...");
+      updateProgress("cut", 10, "1/4 \u2014 Sequence'den ses \xE7\u0131kar\u0131l\u0131yor (FFmpeg ile mixdown, 30 sn-2 dk s\xFCrebilir)...");
       const exported = await audioExporter.exportAudio({
+        sampleRate: 48e3,
+        mono: true,
         onProgress: (pct) => {
           const p = Math.max(10, Math.min(35, 10 + Math.round((pct || 0) * 0.25)));
-          updateProgress("cut", p, `1/4 \u2014 AME render %${Math.round(pct || 0)}`);
+          updateProgress("cut", p, `1/4 \u2014 Mixdown %${Math.round(pct || 0)}`);
         }
       });
       currentAudioPath = exported.outputPath;
@@ -5310,12 +5241,14 @@ ${cap.text}`;
     showProgress("srt", true, "S\u0131ral\u0131 i\u015Flem ba\u015Flat\u0131l\u0131yor...");
     setStatus("Transkript ba\u015Flad\u0131 \u2014 sequence uzunlu\u011Funa g\xF6re 1-2 dakika s\xFCrebilir, l\xFCtfen bekleyin...");
     try {
-      updateProgress("srt", 10, "1/5 \u2014 AME ile ses \xE7\u0131kar\u0131l\u0131yor (ilk a\xE7\u0131l\u0131\u015Fta 15-30 sn AME ba\u015Flar, sonraki \xE7a\u011Fr\u0131lar h\u0131zl\u0131)...");
+      updateProgress("srt", 10, "1/5 \u2014 Sequence'den ses \xE7\u0131kar\u0131l\u0131yor (FFmpeg ile mixdown, 30 sn-1 dk)...");
       const { outputPath: audioPath } = await audioExporter.exportAudio({
+        sampleRate: 16e3,
+        mono: true,
         suffix: "-srt",
         onProgress: (pct) => {
           const p = Math.max(10, Math.min(30, 10 + Math.round((pct || 0) * 0.2)));
-          updateProgress("srt", p, `1/5 \u2014 AME render %${Math.round(pct || 0)}`);
+          updateProgress("srt", p, `1/5 \u2014 Mixdown %${Math.round(pct || 0)}`);
         }
       });
       currentAudioPath = audioPath;

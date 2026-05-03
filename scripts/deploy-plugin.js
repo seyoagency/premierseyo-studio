@@ -46,6 +46,7 @@ const pairs = [
   { src: "src/srt", kind: "dir" },
   { src: "src/ui", kind: "dir" },
   { src: "icons", kind: "dir" },
+  { src: "presets", kind: "dir" },
 ];
 
 for (const pair of pairs) {

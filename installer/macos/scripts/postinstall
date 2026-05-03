@@ -1,0 +1,174 @@
+#!/bin/bash
+# PremierSEYO macOS postinstall
+# Apple Installer tarafindan root yetkisi ile calistirilir.
+# 1. Gercek konsol kullanicisini tespit et (HOME root'unkidir, dogru olmaz)
+# 2. UXP plugin dosyalarini /Applications/PremierSEYO/plugin-source/ -> $HOME/Library/.../External/...
+# 3. LaunchAgent plist'ini olustur ve user session'inda load et
+# 4. ~/.config/premier-seyo/ olustur, eski premiere-cut path'inden migrate et
+# 5. Premiere icin PluginsInfo entry yaz (panel UXP Developer Tool olmadan gorunsun)
+# 6. Native notification: "Premiere'i kapat-ac"
+
+set -u
+
+LOG_TAG="[postinstall]"
+APP_DIR="/Applications/PremierSEYO Studio"
+
+# 1. Konsol kullanicisi
+CONSOLE_USER=$(stat -f "%Su" /dev/console 2>/dev/null || echo "")
+if [ -z "$CONSOLE_USER" ] || [ "$CONSOLE_USER" = "root" ] || [ "$CONSOLE_USER" = "loginwindow" ]; then
+  echo "$LOG_TAG ERR: konsol kullanicisi tespit edilemedi"
+  exit 1
+fi
+USER_HOME=$(eval echo "~$CONSOLE_USER")
+USER_UID=$(id -u "$CONSOLE_USER" 2>/dev/null || echo "")
+echo "$LOG_TAG user=$CONSOLE_USER home=$USER_HOME uid=$USER_UID"
+
+# Manifest icinden version oku
+PLUGIN_ID="com.seyoweb.premierseyostudio"
+VERSION=$(/usr/bin/plutil -extract version raw -o - "$APP_DIR/plugin-source/manifest.json" 2>/dev/null \
+          || /usr/bin/awk -F'"' '/"version"/ {print $4; exit}' "$APP_DIR/plugin-source/manifest.json" 2>/dev/null \
+          || echo "2.0.1")
+echo "$LOG_TAG plugin version=$VERSION"
+
+PLUGIN_DIR="$USER_HOME/Library/Application Support/Adobe/UXP/Plugins/External/${PLUGIN_ID}_${VERSION}"
+PLUGIN_INFO_DIR="$USER_HOME/Library/Application Support/Adobe/UXP/PluginsInfo/v1"
+PLUGIN_INFO_FILE="$PLUGIN_INFO_DIR/premierepro.json"
+LAUNCH_AGENTS_DIR="$USER_HOME/Library/LaunchAgents"
+PLIST_TARGET="$LAUNCH_AGENTS_DIR/com.seyoweb.premierseyostudio.daemon.plist"
+CONFIG_DIR="$USER_HOME/.config/premier-seyo"
+LEGACY_CONFIG_DIR="$USER_HOME/.config/premiere-cut"
+
+# 2. Plugin install
+echo "$LOG_TAG plugin -> $PLUGIN_DIR"
+sudo -u "$CONSOLE_USER" mkdir -p "$PLUGIN_DIR"
+/usr/bin/rsync -a --delete "$APP_DIR/plugin-source/" "$PLUGIN_DIR/"
+chown -R "$CONSOLE_USER" "$PLUGIN_DIR"
+
+# 3. PluginsInfo entry (Premiere panel'i UXP Developer Tool olmadan gorsun)
+sudo -u "$CONSOLE_USER" mkdir -p "$PLUGIN_INFO_DIR"
+sudo -u "$CONSOLE_USER" /usr/bin/env \
+  PLUGIN_INFO_FILE="$PLUGIN_INFO_FILE" \
+  PLUGIN_ID="$PLUGIN_ID" \
+  PLUGIN_VERSION="$VERSION" \
+  PLUGIN_NAME="PremierSEYO" \
+  HOST_MIN_VERSION="25.6.0" \
+  /usr/bin/python3 - <<'PYEOF'
+import json, os, sys
+info_path = os.environ["PLUGIN_INFO_FILE"]
+plugin_id = os.environ["PLUGIN_ID"]
+version = os.environ["PLUGIN_VERSION"]
+name = os.environ["PLUGIN_NAME"]
+host_min = os.environ["HOST_MIN_VERSION"]
+entry = {
+    "hostMinVersion": host_min,
+    "name": name,
+    "path": f"$localPlugins/External/{plugin_id}_{version}",
+    "pluginId": plugin_id,
+    "status": "enabled",
+    "type": "uxp",
+    "versionString": version,
+}
+data = {"plugins": []}
+if os.path.exists(info_path):
+    try:
+        with open(info_path) as f:
+            data = json.load(f)
+        if not isinstance(data, dict) or not isinstance(data.get("plugins"), list):
+            data = {"plugins": []}
+    except Exception:
+        data = {"plugins": []}
+plugins = data["plugins"]
+for i, p in enumerate(plugins):
+    if isinstance(p, dict) and p.get("pluginId") == plugin_id:
+        plugins[i] = {**p, **entry}
+        break
+else:
+    plugins.append(entry)
+with open(info_path, "w") as f:
+    json.dump(data, f, indent=2)
+PYEOF
+chown "$CONSOLE_USER" "$PLUGIN_INFO_FILE" 2>/dev/null || true
+
+# 4. LaunchAgent plist
+echo "$LOG_TAG launchagent -> $PLIST_TARGET"
+sudo -u "$CONSOLE_USER" mkdir -p "$LAUNCH_AGENTS_DIR"
+USER_LOG_DIR="$USER_HOME/Library/Logs"
+sudo -u "$CONSOLE_USER" mkdir -p "$USER_LOG_DIR"
+
+cat > "$PLIST_TARGET" <<PLIST
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.seyoweb.premierseyo.daemon</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>$APP_DIR/node</string>
+    <string>$APP_DIR/daemon/server.js</string>
+  </array>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>PATH</key>
+    <string>$APP_DIR:/usr/bin:/bin:/usr/sbin:/sbin</string>
+    <key>PREMIERSEYO_PORT</key>
+    <string>53117</string>
+    <key>PREMIERSEYO_FFMPEG_PATH</key>
+    <string>$APP_DIR/ffmpeg</string>
+  </dict>
+  <key>RunAtLoad</key>
+  <true/>
+  <key>KeepAlive</key>
+  <dict>
+    <key>SuccessfulExit</key>
+    <false/>
+  </dict>
+  <key>StandardOutPath</key>
+  <string>$USER_LOG_DIR/premierseyo-daemon.log</string>
+  <key>StandardErrorPath</key>
+  <string>$USER_LOG_DIR/premierseyo-daemon.error.log</string>
+  <key>WorkingDirectory</key>
+  <string>$APP_DIR/daemon</string>
+</dict>
+</plist>
+PLIST
+chown "$CONSOLE_USER" "$PLIST_TARGET"
+
+# 5. Daemon'u user session'inda baslat
+if [ -n "$USER_UID" ]; then
+  sudo -u "$CONSOLE_USER" launchctl bootstrap "gui/$USER_UID" "$PLIST_TARGET" 2>/dev/null || \
+    sudo -u "$CONSOLE_USER" launchctl load "$PLIST_TARGET" 2>/dev/null || true
+fi
+
+# 6. Config dizini + migration
+sudo -u "$CONSOLE_USER" mkdir -p "$CONFIG_DIR"
+chown "$CONSOLE_USER" "$CONFIG_DIR"
+chmod 700 "$CONFIG_DIR"
+
+if [ -d "$LEGACY_CONFIG_DIR" ]; then
+  for FILE in deepgram.key token; do
+    if [ -f "$LEGACY_CONFIG_DIR/$FILE" ] && [ ! -f "$CONFIG_DIR/$FILE" ]; then
+      mv "$LEGACY_CONFIG_DIR/$FILE" "$CONFIG_DIR/$FILE"
+      chown "$CONSOLE_USER" "$CONFIG_DIR/$FILE"
+      chmod 600 "$CONFIG_DIR/$FILE"
+      echo "$LOG_TAG migrated: $FILE"
+    fi
+  done
+  rmdir "$LEGACY_CONFIG_DIR" 2>/dev/null || true
+fi
+
+# 7. Daemon ping
+sleep 3
+if /usr/bin/curl -sf -m 3 http://127.0.0.1:53117/ping > /dev/null 2>&1; then
+  echo "$LOG_TAG daemon ping OK"
+else
+  echo "$LOG_TAG WARN: daemon henuz cevap vermiyor (LaunchAgent geri kalanini halletmeli)"
+fi
+
+# 8. Native notification (Premiere acikken kullaniciya bildir)
+sudo -u "$CONSOLE_USER" /usr/bin/osascript -e \
+  'display notification "PremierSEYO kuruldu. Premiere Pro acikse Cmd+Q ile kapat ve tekrar ac. Window > UXP Plugins > PremierSEYO." with title "PremierSEYO" sound name "default"' \
+  >/dev/null 2>&1 || true
+
+echo "$LOG_TAG done"
+exit 0
