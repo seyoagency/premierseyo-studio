@@ -2438,18 +2438,177 @@ button::before {
     }
   });
 
+  // src/utils/secret-store.js
+  var require_secret_store = __commonJS({
+    "src/utils/secret-store.js"(exports, module) {
+      var STORAGE_KEY = "deepgramApiKey";
+      var MIGRATION_FLAG = "premierseyo-studio-legacy-migrated-v1";
+      var _cachedKey = null;
+      function getSecureStorage() {
+        try {
+          return __require("uxp").storage.secureStorage;
+        } catch {
+          return null;
+        }
+      }
+      function bytesToString(bytes) {
+        if (!bytes) return null;
+        if (typeof bytes === "string") return bytes;
+        try {
+          if (typeof TextDecoder !== "undefined") {
+            return new TextDecoder("utf-8").decode(bytes);
+          }
+        } catch {
+        }
+        let out = "";
+        for (let i = 0; i < bytes.length; i++) out += String.fromCharCode(bytes[i]);
+        return out;
+      }
+      function stringToBytes(s) {
+        try {
+          if (typeof TextEncoder !== "undefined") {
+            return new TextEncoder().encode(s);
+          }
+        } catch {
+        }
+        const arr = new Uint8Array(s.length);
+        for (let i = 0; i < s.length; i++) arr[i] = s.charCodeAt(i) & 255;
+        return arr;
+      }
+      async function getKey() {
+        if (_cachedKey) return _cachedKey;
+        const ss = getSecureStorage();
+        if (!ss) return null;
+        try {
+          const bytes = await ss.getItem(STORAGE_KEY);
+          const str = bytesToString(bytes);
+          if (str && str.length >= 32) {
+            _cachedKey = str.trim();
+            return _cachedKey;
+          }
+        } catch {
+        }
+        return null;
+      }
+      async function setKey(key) {
+        if (!key || typeof key !== "string" || key.trim().length < 32) {
+          throw new Error("Gecersiz Deepgram API key (en az 32 karakter olmali)");
+        }
+        const ss = getSecureStorage();
+        if (!ss) throw new Error("secureStorage UXP runtime'da kullanilabilir degil");
+        await ss.setItem(STORAGE_KEY, stringToBytes(key.trim()));
+        _cachedKey = key.trim();
+        return _cachedKey;
+      }
+      async function removeKey() {
+        _cachedKey = null;
+        const ss = getSecureStorage();
+        if (!ss) return;
+        try {
+          await ss.removeItem(STORAGE_KEY);
+        } catch {
+        }
+      }
+      async function migrateFromLegacy() {
+        try {
+          if (typeof localStorage !== "undefined" && localStorage.getItem(MIGRATION_FLAG)) {
+            return false;
+          }
+        } catch {
+        }
+        const existing = await getKey();
+        if (existing) {
+          try {
+            localStorage.setItem(MIGRATION_FLAG, "1");
+          } catch {
+          }
+          return false;
+        }
+        try {
+          const fs = __require("fs");
+          const os = __require("os");
+          const path = __require("path");
+          const legacyKeyPath = path.join(os.homedir(), ".config", "premier-seyo", "deepgram.key");
+          const content = fs.readFileSync(legacyKeyPath, "utf-8").trim();
+          if (content && content.length >= 32) {
+            await setKey(content);
+            try {
+              localStorage.setItem(MIGRATION_FLAG, "1");
+            } catch {
+            }
+            return true;
+          }
+        } catch {
+        }
+        try {
+          localStorage.setItem(MIGRATION_FLAG, "1");
+        } catch {
+        }
+        return false;
+      }
+      module.exports = {
+        getKey,
+        setKey,
+        removeKey,
+        migrateFromLegacy
+      };
+    }
+  });
+
   // src/utils/transport.js
   var require_transport = __commonJS({
     "src/utils/transport.js"(exports, module) {
       var daemon2 = require_daemon();
-      async function call(path, body, timeoutMs) {
-        return daemon2.call(path, body, timeoutMs);
+      var secretStore2 = require_secret_store();
+      async function setDeepgramKey(key) {
+        return secretStore2.setKey(key);
       }
-      async function ping() {
-        return daemon2.ping();
+      async function deepgramTest(tempKey) {
+        const key = tempKey && String(tempKey).trim() || await secretStore2.getKey();
+        if (!key) {
+          return { ok: false, error: "Key girilmedi" };
+        }
+        try {
+          const res = await fetch("https://api.deepgram.com/v1/projects", {
+            method: "GET",
+            headers: { Authorization: `Token ${key}` }
+          });
+          if (res.ok) {
+            return { ok: true, valid: true, message: "Key ge\xE7erli" };
+          }
+          if (res.status === 401) {
+            return { ok: true, valid: false, message: "Ge\xE7ersiz key (401)" };
+          }
+          return { ok: true, valid: false, message: `Deepgram HTTP ${res.status}` };
+        } catch (e) {
+          return { ok: false, error: e.message || "Deepgram'a ula\u015F\u0131lamad\u0131 (network?)" };
+        }
       }
       async function check() {
-        return daemon2.check();
+        const key = await secretStore2.getKey();
+        let amePresent = false;
+        try {
+          const ppro = __require("premierepro");
+          const mgr = ppro.EncoderManager.getManager();
+          amePresent = !!(mgr && mgr.isAMEInstalled);
+        } catch {
+          amePresent = false;
+        }
+        return {
+          ok: true,
+          deepgram: !!key,
+          ame: amePresent,
+          // Geriye uyumluluk için (eski v1 UI kodu hala bunları okuyor olabilir)
+          ffmpeg: false,
+          whisper: !!key,
+          models: key ? ["nova-3"] : []
+        };
+      }
+      async function ping() {
+        return { ok: true };
+      }
+      async function call(path, body, timeoutMs) {
+        return daemon2.call(path, body, timeoutMs);
       }
       async function exportAudio(opts) {
         return daemon2.exportAudio(opts);
@@ -2470,13 +2629,10 @@ button::before {
         return daemon2.getHomeDirs();
       }
       async function log(tag, message) {
-        return daemon2.log(tag, message);
-      }
-      async function setDeepgramKey(key) {
-        return daemon2.setDeepgramKey(key);
-      }
-      async function deepgramTest(tempKey) {
-        return daemon2.deepgramTest(tempKey);
+        try {
+          console.log(`[${tag}]`, message);
+        } catch {
+        }
       }
       module.exports = {
         call,
@@ -4077,9 +4233,11 @@ ${cap.text}`;
   var duplicator;
   var seqEditor;
   var reconstructor;
+  var secretStore;
   try {
     config = require_config();
     daemon = require_transport();
+    secretStore = require_secret_store();
     timeUtils = require_time();
     audioExporter = require_audio_exporter();
     silenceDetector = require_silence_detector();
@@ -4119,6 +4277,10 @@ ${cap.text}`;
       settingsHydrated = true;
       saveCurrentSettings();
       _earlyStatus("Init tamam \u2014 dep check");
+      if (secretStore) {
+        secretStore.migrateFromLegacy().catch(() => {
+        });
+      }
       checkDependencies();
       refreshConnectionStatus();
       applyBrandStyles();
@@ -4493,10 +4655,10 @@ ${cap.text}`;
   async function checkDependencies() {
     try {
       const res = await daemon.check();
-      updateDepBadge("ffmpeg", res.ffmpeg);
-      updateDepBadge("whisper", res.whisper);
-      updateDepBadge("model", res.models && res.models.length > 0);
-      if (!res.ffmpeg || !res.whisper || !(res.models && res.models.length)) {
+      updateDepBadge("ffmpeg", res.ame);
+      updateDepBadge("whisper", res.deepgram);
+      updateDepBadge("model", res.deepgram);
+      if (!res.ame || !res.deepgram) {
         const dc = document.getElementById("dep-check-cut");
         if (dc) dc.style.display = "flex";
       }
@@ -5210,6 +5372,16 @@ ${cap.text}`;
     try {
       const check = await daemon.check();
       const hasKey = !!check.deepgram;
+      const hasAme = !!check.ame;
+      if (!hasAme) {
+        document.body.classList.remove("no-key");
+        if (badge) {
+          badge.classList.remove("live");
+          badge.classList.add("error");
+        }
+        if (badgeText) badgeText.textContent = "AME yok";
+        return;
+      }
       if (hasKey) {
         document.body.classList.remove("no-key");
         if (badge) {
@@ -5231,7 +5403,7 @@ ${cap.text}`;
         badge.classList.remove("live");
         badge.classList.add("error");
       }
-      if (badgeText) badgeText.textContent = "daemon yok";
+      if (badgeText) badgeText.textContent = "baglanti hatasi";
     }
   }
   function showToast(message, type) {

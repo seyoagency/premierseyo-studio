@@ -19,9 +19,12 @@ let config, daemon, timeUtils, audioExporter, silenceDetector, breathDetector;
 let segmentBuilder, transcriber, captionGrouper, srtWriter, vttWriter;
 let duplicator, seqEditor, reconstructor;
 
+let secretStore;
+
 try {
   config = require("./utils/config");
   daemon = require("./utils/transport");
+  secretStore = require("./utils/secret-store");
   timeUtils = require("./utils/time");
   audioExporter = require("./core/audio-exporter");
   silenceDetector = require("./core/silence-detector");
@@ -68,6 +71,10 @@ function init() {
     settingsHydrated = true;
     saveCurrentSettings();
     _earlyStatus("Init tamam — dep check");
+    // Legacy v1 daemon kurulumundan key migration (bir kerelik, sessiz)
+    if (secretStore) {
+      secretStore.migrateFromLegacy().catch(() => {});
+    }
     checkDependencies();
     refreshConnectionStatus();
     applyBrandStyles();
@@ -492,11 +499,13 @@ function handleResetSettings() {
 async function checkDependencies() {
   try {
     const res = await daemon.check();
-    updateDepBadge("ffmpeg", res.ffmpeg);
-    updateDepBadge("whisper", res.whisper);
-    updateDepBadge("model", res.models && res.models.length > 0);
+    // v2: ame + deepgram badges. Eski "ffmpeg/whisper/model" badge'leri varsa
+    // backward-compat olarak deepgram'a map edilir (UI rebadge Phase 5'te).
+    updateDepBadge("ffmpeg", res.ame);     // mixdown engine: AME
+    updateDepBadge("whisper", res.deepgram); // STT: Deepgram
+    updateDepBadge("model", res.deepgram);
 
-    if (!res.ffmpeg || !res.whisper || !(res.models && res.models.length)) {
+    if (!res.ame || !res.deepgram) {
       const dc = document.getElementById("dep-check-cut");
       if (dc) dc.style.display = "flex";
     }
@@ -1360,6 +1369,19 @@ async function refreshConnectionStatus() {
   try {
     const check = await daemon.check();
     const hasKey = !!check.deepgram;
+    const hasAme = !!check.ame;
+
+    // Öncelik: AME yoksa kritik (mixdown çalışmaz), key yoksa Auto-SRT çalışmaz
+    if (!hasAme) {
+      document.body.classList.remove("no-key");
+      if (badge) {
+        badge.classList.remove("live");
+        badge.classList.add("error");
+      }
+      if (badgeText) badgeText.textContent = "AME yok";
+      return;
+    }
+
     if (hasKey) {
       document.body.classList.remove("no-key");
       if (badge) {
@@ -1381,7 +1403,7 @@ async function refreshConnectionStatus() {
       badge.classList.remove("live");
       badge.classList.add("error");
     }
-    if (badgeText) badgeText.textContent = "daemon yok";
+    if (badgeText) badgeText.textContent = "baglanti hatasi";
   }
 }
 
