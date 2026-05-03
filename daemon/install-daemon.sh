@@ -12,7 +12,21 @@
 
 set -e
 
-SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+# curl | bash ile çalıştırılırsa BASH_SOURCE boş — repo'yu indir, oradan çalıştır
+SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]:-$0}" 2>/dev/null )" 2>/dev/null && pwd )" || SCRIPT_DIR=""
+if [ -z "$SCRIPT_DIR" ] || [ ! -f "$SCRIPT_DIR/com.seyoweb.premierseyostudio.daemon.plist" ]; then
+  echo "==> Kurulum dosyaları GitHub'dan indiriliyor..."
+  TMP_REPO="/tmp/premierseyo-studio-install-$$"
+  rm -rf "$TMP_REPO"
+  mkdir -p "$TMP_REPO"
+  curl -sfL "https://github.com/seyoagency/premierseyo-studio/archive/refs/heads/main.tar.gz" | tar -xz -C "$TMP_REPO" --strip-components=1
+  if [ ! -f "$TMP_REPO/daemon/com.seyoweb.premierseyostudio.daemon.plist" ]; then
+    echo "HATA: Repo indirilemedi" >&2
+    exit 1
+  fi
+  exec bash "$TMP_REPO/daemon/install-daemon.sh"
+fi
+
 REPO_ROOT="$( cd "$SCRIPT_DIR/.." && pwd )"
 DAEMON_PATH="$SCRIPT_DIR/server.js"
 PLIST_TEMPLATE="$SCRIPT_DIR/com.seyoweb.premierseyostudio.daemon.plist"
