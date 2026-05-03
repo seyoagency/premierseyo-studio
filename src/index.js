@@ -20,11 +20,13 @@ let segmentBuilder, transcriber, captionGrouper, srtWriter, vttWriter;
 let duplicator, seqEditor, reconstructor;
 
 let secretStore;
+let updateChecker;
 
 try {
   config = require("./utils/config");
   daemon = require("./utils/transport");
   secretStore = require("./utils/secret-store");
+  updateChecker = require("./utils/update-checker");
   timeUtils = require("./utils/time");
   audioExporter = require("./core/audio-exporter");
   silenceDetector = require("./core/silence-detector");
@@ -78,6 +80,15 @@ function init() {
     checkDependencies();
     refreshConnectionStatus();
     applyBrandStyles();
+
+    // Auto-update check — 10 saniye sonra arka planda çalışır
+    if (updateChecker) {
+      setTimeout(() => {
+        updateChecker.checkSilently().then((res) => {
+          if (res && res.available) showUpdateBanner(res);
+        });
+      }, 10000);
+    }
   } catch (e) {
     _earlyStatus("Init hatasi: " + e.message);
     console.error("PremiereCut init error:", e);
@@ -1424,6 +1435,34 @@ function showToast(message, type) {
   t.classList.add("show");
   if (showToast._timer) clearTimeout(showToast._timer);
   showToast._timer = setTimeout(() => t.classList.remove("show"), 2400);
+}
+
+// ——— Update banner (auto-update notification) ———
+function showUpdateBanner({ latestVersion, releaseUrl, downloadUrl }) {
+  const banner = document.getElementById("update-banner");
+  const text = document.getElementById("update-banner-text");
+  const action = document.getElementById("update-banner-action");
+  const close = document.getElementById("update-banner-close");
+  if (!banner || !text || !action || !close) return;
+
+  text.textContent = `Yeni sürüm mevcut: v${latestVersion}`;
+  banner.hidden = false;
+
+  const url = downloadUrl || releaseUrl;
+  action.onclick = () => {
+    try {
+      const shell = require("uxp").shell;
+      if (shell && typeof shell.openExternal === "function") {
+        shell.openExternal(url);
+      }
+    } catch (e) {
+      console.warn("[update-banner] openExternal failed:", e.message);
+    }
+    banner.hidden = true;
+  };
+  close.onclick = () => {
+    banner.hidden = true;
+  };
 }
 
 // ——— Confirmation Modal ———

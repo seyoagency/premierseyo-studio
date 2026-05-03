@@ -2220,6 +2220,13 @@ button::before {
   <!-- Toast (transient feedback) -->
   <div class="toast" id="toast" role="status" aria-live="polite"></div>
 
+  <!-- Update banner (auto-update notification) -->
+  <div class="update-banner" id="update-banner" role="status" aria-live="polite" hidden>
+    <span class="update-banner-text" id="update-banner-text">Yeni sürüm mevcut</span>
+    <button class="update-banner-action" id="update-banner-action" type="button">İndir</button>
+    <button class="update-banner-close" id="update-banner-close" type="button" aria-label="Kapat">×</button>
+  </div>
+
 
   <script>
 (() => {
@@ -2945,6 +2952,190 @@ button::before {
         setDeepgramKey,
         deepgramTest,
         DAEMON_URL: daemon2.DAEMON_URL
+      };
+    }
+  });
+
+  // manifest.json
+  var require_manifest = __commonJS({
+    "manifest.json"(exports, module) {
+      module.exports = {
+        id: "com.seyoweb.premierseyo.studio",
+        name: "PremierSEYO Studio",
+        version: "2.0.0-rc.1",
+        main: "src/index.html",
+        host: {
+          app: "premierepro",
+          minVersion: "25.6.0"
+        },
+        manifestVersion: 5,
+        requiredPermissions: {
+          localFileSystem: "fullAccess",
+          clipboard: "readAndWrite",
+          network: {
+            domains: "all"
+          },
+          launchProcess: {
+            schemes: ["http", "https"],
+            extensions: ["", ".srt", ".vtt", ".wav", ".txt"]
+          },
+          allowCodeGenerationFromStrings: true
+        },
+        entrypoints: [
+          {
+            id: "premierseyo-studio-panel",
+            type: "panel",
+            label: {
+              default: "PremierSEYO Studio"
+            },
+            minimumSize: {
+              width: 280,
+              height: 400
+            },
+            maximumSize: {
+              width: 600,
+              height: 1200
+            },
+            preferredDockedSize: {
+              width: 320,
+              height: 600
+            },
+            preferredFloatingSize: {
+              width: 400,
+              height: 780
+            },
+            icons: [
+              {
+                width: 23,
+                height: 23,
+                path: "icons/icon-dark.png",
+                scale: [1, 2],
+                theme: ["darkest", "dark", "medium"]
+              },
+              {
+                width: 23,
+                height: 23,
+                path: "icons/icon-light.png",
+                scale: [1, 2],
+                theme: ["lightest", "light"]
+              }
+            ]
+          }
+        ],
+        icons: [
+          {
+            width: 48,
+            height: 48,
+            path: "icons/icon-dark.png",
+            scale: [1, 2],
+            theme: ["darkest", "dark", "medium", "lightest", "light", "all"],
+            species: ["pluginList"]
+          }
+        ]
+      };
+    }
+  });
+
+  // src/utils/update-checker.js
+  var require_update_checker = __commonJS({
+    "src/utils/update-checker.js"(exports, module) {
+      var REPO_OWNER = "seyoagency";
+      var REPO_NAME = "premierseyo-studio";
+      var CACHE_KEY = "premierseyo-studio-last-update-check";
+      var CHECK_INTERVAL_MS = 24 * 60 * 60 * 1e3;
+      function getCurrentVersion() {
+        try {
+          return require_manifest().version || "0.0.0";
+        } catch {
+          return "0.0.0";
+        }
+      }
+      function parseSemver(v) {
+        const clean = String(v || "").replace(/^v|^studio-v/, "").trim();
+        const [main, prerelease] = clean.split("-");
+        const parts = main.split(".").map((n) => parseInt(n, 10) || 0);
+        while (parts.length < 3) parts.push(0);
+        return { major: parts[0], minor: parts[1], patch: parts[2], pre: prerelease || "" };
+      }
+      function semverCompare(a, b) {
+        const A = parseSemver(a);
+        const B = parseSemver(b);
+        if (A.major !== B.major) return A.major - B.major;
+        if (A.minor !== B.minor) return A.minor - B.minor;
+        if (A.patch !== B.patch) return A.patch - B.patch;
+        if (!A.pre && B.pre) return 1;
+        if (A.pre && !B.pre) return -1;
+        return A.pre.localeCompare(B.pre);
+      }
+      function shouldCheckNow(force) {
+        if (force) return true;
+        try {
+          const last = parseInt(localStorage.getItem(CACHE_KEY) || "0", 10);
+          return Date.now() - last >= CHECK_INTERVAL_MS;
+        } catch {
+          return true;
+        }
+      }
+      function markChecked() {
+        try {
+          localStorage.setItem(CACHE_KEY, String(Date.now()));
+        } catch {
+        }
+      }
+      async function checkForUpdates({ force = false } = {}) {
+        const currentVersion = getCurrentVersion();
+        if (!shouldCheckNow(force)) {
+          return { available: false, currentVersion, cached: true };
+        }
+        try {
+          const url = `https://api.github.com/repos/${REPO_OWNER}/${REPO_NAME}/releases/latest`;
+          const controller = new AbortController();
+          const timer = setTimeout(() => controller.abort(), 1e4);
+          const res = await fetch(url, {
+            method: "GET",
+            headers: { Accept: "application/vnd.github+json" },
+            signal: controller.signal
+          });
+          clearTimeout(timer);
+          if (!res.ok) {
+            markChecked();
+            return { available: false, currentVersion, error: `HTTP ${res.status}` };
+          }
+          const release = await res.json();
+          markChecked();
+          const latestVersion = String(release.tag_name || "").replace(/^v|^studio-v/, "");
+          if (!latestVersion) {
+            return { available: false, currentVersion };
+          }
+          const cmp = semverCompare(latestVersion, currentVersion);
+          const ccxAsset = (release.assets || []).find(
+            (a) => String(a.name || "").toLowerCase().endsWith(".ccx")
+          );
+          return {
+            available: cmp > 0,
+            currentVersion,
+            latestVersion,
+            releaseUrl: release.html_url,
+            downloadUrl: ccxAsset ? ccxAsset.browser_download_url : release.html_url
+          };
+        } catch (e) {
+          markChecked();
+          console.warn("[update-checker] check failed:", e.message || e);
+          return { available: false, currentVersion, error: e.message || "fetch failed" };
+        }
+      }
+      async function checkSilently() {
+        try {
+          return await checkForUpdates({ force: false });
+        } catch {
+          return { available: false };
+        }
+      }
+      module.exports = {
+        checkForUpdates,
+        checkSilently,
+        getCurrentVersion,
+        semverCompare
       };
     }
   });
@@ -4655,10 +4846,12 @@ ${cap.text}`;
   var seqEditor;
   var reconstructor;
   var secretStore;
+  var updateChecker;
   try {
     config = require_config();
     daemon = require_transport();
     secretStore = require_secret_store();
+    updateChecker = require_update_checker();
     timeUtils = require_time();
     audioExporter = require_audio_exporter();
     silenceDetector = require_silence_detector();
@@ -4705,6 +4898,13 @@ ${cap.text}`;
       checkDependencies();
       refreshConnectionStatus();
       applyBrandStyles();
+      if (updateChecker) {
+        setTimeout(() => {
+          updateChecker.checkSilently().then((res) => {
+            if (res && res.available) showUpdateBanner(res);
+          });
+        }, 1e4);
+      }
     } catch (e) {
       _earlyStatus("Init hatasi: " + e.message);
       console.error("PremiereCut init error:", e);
@@ -5844,6 +6044,30 @@ ${cap.text}`;
     t.classList.add("show");
     if (showToast._timer) clearTimeout(showToast._timer);
     showToast._timer = setTimeout(() => t.classList.remove("show"), 2400);
+  }
+  function showUpdateBanner({ latestVersion, releaseUrl, downloadUrl }) {
+    const banner = document.getElementById("update-banner");
+    const text = document.getElementById("update-banner-text");
+    const action = document.getElementById("update-banner-action");
+    const close = document.getElementById("update-banner-close");
+    if (!banner || !text || !action || !close) return;
+    text.textContent = `Yeni s\xFCr\xFCm mevcut: v${latestVersion}`;
+    banner.hidden = false;
+    const url = downloadUrl || releaseUrl;
+    action.onclick = () => {
+      try {
+        const shell = __require("uxp").shell;
+        if (shell && typeof shell.openExternal === "function") {
+          shell.openExternal(url);
+        }
+      } catch (e) {
+        console.warn("[update-banner] openExternal failed:", e.message);
+      }
+      banner.hidden = true;
+    };
+    close.onclick = () => {
+      banner.hidden = true;
+    };
   }
   function showConfirm({ title, body, confirmLabel = "Devam et", cancelLabel = "\u0130ptal" } = {}) {
     return new Promise((resolve) => {
