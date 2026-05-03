@@ -17,5 +17,8 @@
     "test": "npm run test:timeline && npm run test:caption",
     "check:js": "node scripts/check-js.js",
     "ci": "npm run test && npm run check:js"
+  },
+  "devDependencies": {
+    "archiver": "^7.0.1"
   }
 }

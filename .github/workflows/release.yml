@@ -1,0 +1,75 @@
+name: Release CCX
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Release tag (e.g. v2.0.0)'
+        required: true
+        default: 'v2.0.0'
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run tests + JS check
+        run: npm run ci
+
+      - name: Build bundle + inline assets
+        run: npm run build:assets
+
+      - name: Build CCX
+        run: npm run build:ccx
+
+      - name: Get version from manifest
+        id: ver
+        run: |
+          VERSION=$(node -p "require('./manifest.json').version")
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+          echo "Building PremierSEYO Studio v${VERSION}"
+
+      - name: List artifacts
+        run: ls -lh dist/
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/PremierSEYO-Studio-${{ steps.ver.outputs.version }}.ccx
+          name: PremierSEYO Studio v${{ steps.ver.outputs.version }}
+          tag_name: ${{ github.event.inputs.tag || github.ref_name }}
+          generate_release_notes: true
+          body: |
+            ## PremierSEYO Studio v${{ steps.ver.outputs.version }}
+
+            **Kurulum (60 saniye)**:
+            1. Aşağıdan `PremierSEYO-Studio-${{ steps.ver.outputs.version }}.ccx` dosyasını indir
+            2. **Çift tıkla** → Creative Cloud Desktop otomatik yükler
+            3. Premiere Pro'yu kapat → tekrar aç
+            4. **Window > UXP Plugins > PremierSEYO Studio**
+
+            **Gereksinimler**:
+            - Adobe Premiere Pro 25.6+ (2026)
+            - Adobe Media Encoder ([CC'den ücretsiz](https://creativecloud.adobe.com/apps/all/desktop?subapp=media-encoder))
+            - Deepgram API key ([200 USD ücretsiz kredi](https://console.deepgram.com/signup))
+
+            ---
+
+            🤖 Auto-generated release notes:

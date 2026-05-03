@@ -1,24 +1,20 @@
 /**
  * Transport façade — plugin'in dış dünya ile tüm temasını tek noktadan yönetir.
  *
- * Tasarım: daemon HTTP client'ı (legacy v1 mimarisi) ile UXP-native implementasyonlar
- * (v2 self-contained) arasında köprü. Plugin kodu artık `daemon.*` yerine `transport.*`
- * çağırır. Phase 2-6 boyunca her metod yavaş yavaş daemon'dan UXP-native'e geçirilecek.
- *
- * Phase 1: tüm metodlar daemon.js'e delege (no-op refactor).
- * Phase 2 (mevcut): setDeepgramKey, deepgramTest, check → secureStorage + plugin-side fetch
- * Phase 3: transcribe, silenceDetect → plugin-side Deepgram client
- * Phase 4: writeFile, reveal, getHomeDirs → UXP localFileSystem + shell
- * Phase 5: exportAudio → AME EncoderManager
- * Phase 7: daemon.js silinir
+ * Tarihsel: v1 mimaride bu modül daemon HTTP client'ına delege ediyordu.
+ * v2'de daemon tamamen kaldırıldı; tüm metodlar UXP-native:
+ *   - setDeepgramKey / deepgramTest / check → secureStorage + plugin fetch
+ *   - transcribe / silenceDetect → plugin-side Deepgram client
+ *   - writeFile / reveal / getHomeDirs → UXP localFileSystem + shell
+ *   - exportAudio → AME EncoderManager (audio-exporter.js'de doğrudan)
+ *   - log → console.log
  */
 
-const daemon = require("./daemon");
 const secretStore = require("./secret-store");
 const deepgramClient = require("../core/deepgram-client");
 const fileSaver = require("./file-saver");
 
-// ——— Phase 2: secureStorage + plugin-side Deepgram auth ———
+// ——— Auth & connection ———
 
 async function setDeepgramKey(key) {
   return secretStore.setKey(key);
@@ -46,14 +42,6 @@ async function deepgramTest(tempKey) {
   }
 }
 
-/**
- * Connection status check.
- * - deepgram: secureStorage'da geçerli key var mı
- * - ame: Adobe Media Encoder kurulu mu (audio mixdown için zorunlu)
- *
- * Geriye uyumluluk: ffmpeg/whisper/models alanları false döner — eski
- * UI kodu badge'leri "yok" olarak işaretler.
- */
 async function check() {
   const key = await secretStore.getKey();
   let amePresent = false;
@@ -68,29 +56,18 @@ async function check() {
     ok: true,
     deepgram: !!key,
     ame: amePresent,
-    // Geriye uyumluluk için (eski v1 UI kodu hala bunları okuyor olabilir)
-    ffmpeg: false,
+    // Backwards-compat: eski badge isimleri için
+    ffmpeg: amePresent,
     whisper: !!key,
     models: key ? ["nova-3"] : [],
   };
 }
 
 async function ping() {
-  // v2'de daemon yok; ping anlamsız ama backward-compat için her zaman OK döner
   return { ok: true };
 }
 
-// ——— Phase 3+ için hala daemon'a delege (geçici) ———
-
-async function call(path, body, timeoutMs) {
-  return daemon.call(path, body, timeoutMs);
-}
-
-async function exportAudio(opts) {
-  return daemon.exportAudio(opts);
-}
-
-// ——— Phase 3: plugin-side Deepgram (transcribe + silence detect) ———
+// ——— Audio analysis (Deepgram) ———
 
 async function silenceDetect({ audioPath, minDuration = 0.4, language = "tr", uttSplit = 0.8 } = {}) {
   const json = await deepgramClient.transcribeFile(audioPath, { language, uttSplit });
@@ -104,7 +81,7 @@ async function transcribe({ audioPath, language = "tr", keyterm = null, uttSplit
   return { ok: true, result: json };
 }
 
-// ——— Phase 4: UXP-native file save + reveal ———
+// ——— File system ———
 
 async function writeFile({ filePath, content } = {}) {
   const savedPath = await fileSaver.writeAtPath(filePath, content);
@@ -119,18 +96,17 @@ async function getHomeDirs() {
   return fileSaver.getHomeDirs();
 }
 
+// ——— Logging ———
+
 async function log(tag, message) {
-  // v2'de log daemon'a değil console'a — ufak optimization
   try {
     console.log(`[${tag}]`, message);
   } catch {}
 }
 
 module.exports = {
-  call,
   ping,
   check,
-  exportAudio,
   silenceDetect,
   transcribe,
   writeFile,
@@ -139,5 +115,4 @@ module.exports = {
   log,
   setDeepgramKey,
   deepgramTest,
-  DAEMON_URL: daemon.DAEMON_URL,
 };

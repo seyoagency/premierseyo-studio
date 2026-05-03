@@ -2323,128 +2323,6 @@ button::before {
     }
   });
 
-  // src/utils/daemon.js
-  var require_daemon = __commonJS({
-    "src/utils/daemon.js"(exports, module) {
-      var DAEMON_URL = "http://127.0.0.1:53117";
-      var DEFAULT_TIMEOUT = 30 * 60 * 1e3;
-      var _cachedToken = null;
-      var _cachedHome = null;
-      function readTokenSafe() {
-        if (_cachedToken) return _cachedToken;
-        try {
-          const fs = __require("fs");
-          const os = __require("os");
-          const path = __require("path");
-          const tokenPath = path.join(os.homedir(), ".config", "premier-seyo", "token");
-          const content = fs.readFileSync(tokenPath, "utf-8").trim();
-          if (content && content.length >= 32) {
-            _cachedToken = content;
-            return content;
-          }
-        } catch {
-        }
-        return null;
-      }
-      async function call(path, body = null, timeoutMs = DEFAULT_TIMEOUT) {
-        const url = DAEMON_URL + path;
-        const controller = new AbortController();
-        const timer = setTimeout(() => controller.abort(), timeoutMs);
-        const headers = {};
-        if (body) headers["Content-Type"] = "application/json";
-        if (path !== "/ping") headers["X-Premiere-Cut-Client"] = "premierseyo-uxp";
-        const token = path === "/ping" ? null : readTokenSafe();
-        if (token) headers["X-Premiere-Cut-Token"] = token;
-        try {
-          const res = await fetch(url, {
-            method: body ? "POST" : "GET",
-            headers,
-            body: body ? JSON.stringify(body) : void 0,
-            signal: controller.signal
-          });
-          const data = await res.json();
-          if (!res.ok) {
-            if (res.status === 401) {
-              throw new Error(
-                "Helper daemon yetkilendirmesi basarisiz. Daemon'u yeniden baslatin.\nKomutlar: launchctl unload ~/Library/LaunchAgents/com.seyoweb.premierseyo.daemon.plist && launchctl load ~/Library/LaunchAgents/com.seyoweb.premierseyo.daemon.plist"
-              );
-            }
-            throw new Error(data.error || `HTTP ${res.status}`);
-          }
-          return data;
-        } catch (err) {
-          if (err.name === "AbortError") {
-            throw new Error(`Daemon timeout (${timeoutMs}ms): ${path}`);
-          }
-          if (err.message && err.message.includes("fetch")) {
-            throw new Error(
-              "Helper daemon'a ulasilamadi. Lutfen daemon'un calistigindan emin olun.\nBaslatma komutu: launchctl load ~/Library/LaunchAgents/com.seyoweb.premierseyo.daemon.plist"
-            );
-          }
-          throw err;
-        } finally {
-          clearTimeout(timer);
-        }
-      }
-      async function ping() {
-        return call("/ping", null, 3e3);
-      }
-      async function check() {
-        await ping();
-        return call("/check", null, 1e4);
-      }
-      async function exportAudio({ inputPath, sampleRate = 48e3, mono = false, suffix = "" }) {
-        return call("/export-audio", { inputPath, sampleRate, mono, suffix }, 6e5);
-      }
-      async function silenceDetect({ audioPath, minDuration = 0.4, language = "tr", uttSplit = 0.8 }) {
-        return call("/silence-detect", { audioPath, minDuration, language, uttSplit }, 6e5);
-      }
-      async function transcribe({ audioPath, language = "tr", keyterm = null, uttSplit = 0.8 }) {
-        return call("/transcribe", { audioPath, language, keyterm, uttSplit }, 10 * 60 * 1e3);
-      }
-      async function writeFile({ filePath, content }) {
-        return call("/write-file", { filePath, content }, 3e4);
-      }
-      async function reveal(filePath) {
-        return call("/reveal", { filePath }, 5e3);
-      }
-      async function log(tag, message) {
-        try {
-          await call("/log", { tag, message }, 3e3);
-        } catch {
-        }
-      }
-      async function setDeepgramKey(key) {
-        return call("/set-deepgram-key", { key }, 5e3);
-      }
-      async function deepgramTest(tempKey = null) {
-        const body = tempKey && tempKey.length >= 20 ? { key: tempKey } : null;
-        return call("/deepgram-test", body, 12e3);
-      }
-      async function getHomeDirs() {
-        if (_cachedHome) return _cachedHome;
-        const res = await call("/home-dir", null, 5e3);
-        _cachedHome = { homeDir: res.homeDir, documentsDir: res.documentsDir };
-        return _cachedHome;
-      }
-      module.exports = {
-        call,
-        ping,
-        check,
-        exportAudio,
-        silenceDetect,
-        transcribe,
-        writeFile,
-        reveal,
-        getHomeDirs,
-        log,
-        setDeepgramKey,
-        deepgramTest,
-        DAEMON_URL
-      };
-    }
-  });
-
   // src/utils/secret-store.js
   var require_secret_store = __commonJS({
     "src/utils/secret-store.js"(exports, module) {
@@ -2855,7 +2733,6 @@ button::before {
   // src/utils/transport.js
   var require_transport = __commonJS({
     "src/utils/transport.js"(exports, module) {
-      var daemon2 = require_daemon();
       var secretStore2 = require_secret_store();
       var deepgramClient = require_deepgram_client();
       var fileSaver = require_file_saver();
@@ -2897,20 +2774,14 @@ button::before {
           ok: true,
           deepgram: !!key,
           ame: amePresent,
-          // Geriye uyumluluk için (eski v1 UI kodu hala bunları okuyor olabilir)
-          ffmpeg: false,
+          // Backwards-compat: eski badge isimleri için
+          ffmpeg: amePresent,
           whisper: !!key,
           models: key ? ["nova-3"] : []
         };
       }
       async function ping() {
         return { ok: true };
-      }
-      async function call(path, body, timeoutMs) {
-        return daemon2.call(path, body, timeoutMs);
-      }
-      async function exportAudio(opts) {
-        return daemon2.exportAudio(opts);
       }
       async function silenceDetect({ audioPath, minDuration = 0.4, language = "tr", uttSplit = 0.8 } = {}) {
         const json = await deepgramClient.transcribeFile(audioPath, { language, uttSplit });
@@ -2939,10 +2810,8 @@ button::before {
         }
       }
       module.exports = {
-        call,
         ping,
         check,
-        exportAudio,
         silenceDetect,
         transcribe,
         writeFile,
@@ -2950,8 +2819,7 @@ button::before {
         getHomeDirs,
         log,
         setDeepgramKey,
-        deepgramTest,
-        DAEMON_URL: daemon2.DAEMON_URL
+        deepgramTest
       };
     }
   });
